@@ -90,33 +90,53 @@ class HomeScreen extends StatelessWidget {
                             final profile = profiles[index];
                             final isActive =
                                 profileNotifier.activeId == profile.id;
-                            return Card(
+                            return AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
                               margin: const EdgeInsets.only(bottom: 12),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(16),
-                                onTap: () => context
-                                    .read<ProfileNotifier>()
-                                    .setActive(profile.id),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 48,
-                                        height: 48,
-                                        decoration: BoxDecoration(
-                                          color: isActive
-                                              ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
-                                              : Theme.of(context).colorScheme.surface.withOpacity(0.5),
-                                          shape: BoxShape.circle,
+                              child: Card(
+                                elevation: isActive ? 4 : 2,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(16),
+                                  onTap: () => _switchProfile(context, profile, isActive),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Row(
+                                      children: [
+                                        AnimatedContainer(
+                                          duration: const Duration(milliseconds: 300),
+                                          curve: Curves.easeInOut,
+                                          width: 48,
+                                          height: 48,
+                                          decoration: BoxDecoration(
+                                            color: isActive
+                                                ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
+                                                : Theme.of(context).colorScheme.surface.withOpacity(0.5),
+                                            shape: BoxShape.circle,
+                                            border: isActive
+                                                ? Border.all(
+                                                    color: Theme.of(context).colorScheme.primary.withOpacity(0.5),
+                                                    width: 2,
+                                                  )
+                                                : null,
+                                          ),
+                                          child: AnimatedSwitcher(
+                                            duration: const Duration(milliseconds: 200),
+                                            transitionBuilder: (child, animation) {
+                                              return ScaleTransition(
+                                                scale: animation,
+                                                child: child,
+                                              );
+                                            },
+                                            child: Icon(
+                                              isActive ? Icons.check_circle_rounded : Icons.circle_outlined,
+                                              key: ValueKey(isActive),
+                                              color: isActive
+                                                  ? Theme.of(context).colorScheme.primary
+                                                  : Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                                            ),
+                                          ),
                                         ),
-                                        child: Icon(
-                                          isActive ? Icons.check_circle_rounded : Icons.circle_outlined,
-                                          color: isActive
-                                              ? Theme.of(context).colorScheme.primary
-                                              : Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                                        ),
-                                      ),
                                       const SizedBox(width: 16),
                                       Expanded(
                                         child: Column(
@@ -177,6 +197,7 @@ class HomeScreen extends StatelessWidget {
                                   ),
                                 ),
                               ),
+                            ),
                             );
                           },
                         ),
@@ -326,6 +347,44 @@ class HomeScreen extends StatelessWidget {
     await Share.share(uri, subject: active.name);
   }
 
+  Future<void> _switchProfile(
+    BuildContext context,
+    VlessProfile profile,
+    bool isCurrentlyActive,
+  ) async {
+    if (isCurrentlyActive) return; // Already active, do nothing
+
+    final profileNotifier = context.read<ProfileNotifier>();
+    final vpnNotifier = context.read<VpnNotifier>();
+    final wasConnected = vpnNotifier.status == VpnStatus.connected;
+    final wasConnecting = vpnNotifier.status == VpnStatus.connecting;
+
+    // Show switching indicator
+    if (wasConnected || wasConnecting) {
+      _showSnack(context, 'Переключение на ${profile.name}...', duration: const Duration(seconds: 1));
+    }
+
+    // If VPN is connected or connecting, disconnect first
+    if (wasConnected || wasConnecting) {
+      await vpnNotifier.disconnect();
+      // Small delay for smooth transition
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+
+    // Switch to new profile
+    await profileNotifier.setActive(profile.id);
+
+    // If VPN was connected, automatically reconnect with new profile
+    if (wasConnected) {
+      // Small delay to show the switch animation
+      await Future.delayed(const Duration(milliseconds: 200));
+      await vpnNotifier.connect(profile);
+      if (context.mounted) {
+        _showSnack(context, 'Подключение к ${profile.name}...', duration: const Duration(seconds: 1));
+      }
+    }
+  }
+
   Future<void> _startVpn(BuildContext context) async {
     final profileNotifier = context.read<ProfileNotifier>();
     final vpnNotifier = context.read<VpnNotifier>();
@@ -383,8 +442,15 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  void _showSnack(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  void _showSnack(BuildContext context, String message, {Duration? duration}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: duration ?? const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+      ),
+    );
   }
 }
 
