@@ -66,8 +66,8 @@ class MyApp extends StatelessWidget {
             elevation: 2,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
-            ),
-          ),
+        ),
+      ),
           floatingActionButtonTheme: const FloatingActionButtonThemeData(
             backgroundColor: Color(0xFF00D9FF),
             foregroundColor: Color(0xFF000000),
