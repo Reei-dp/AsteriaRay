@@ -63,7 +63,7 @@ class VpnNotifier extends ChangeNotifier {
       final prepared = await _runner.prepareConfig(profile);
       _logPath = prepared.logPath;
       await _platform.prepareVpn();
-      // Use libbox (no binPath) instead of external binary
+      // Use libcore (NekoBox/sing-box) for VPN
       await _platform.startVpn(
         configPath: prepared.configPath,
         workDir: prepared.workDir,
