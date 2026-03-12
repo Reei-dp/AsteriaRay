@@ -9,7 +9,7 @@ A modern Android VPN client for the VLESS protocol, built with Flutter and power
 - **Import/Export**: Import profiles from clipboard or file, export and share configurations
 - **Reality Support**: Built-in support for Reality protocol with public key and short ID
 - **Transport Types**: Support for TCP, WebSocket (WS), gRPC, and HTTP/2 transports
-- **Native Integration**: Uses embedded libbox library for optimal performance
+- **Native Integration**: Uses embedded libcore (NekoBox/sing-box) for VPN core
 - **Connection Status**: Real-time VPN connection status and statistics
 - **Logs Viewing**: View sing-box logs directly in the app
 - **Modern UI**: Clean and intuitive Material Design interface
@@ -19,7 +19,7 @@ A modern Android VPN client for the VLESS protocol, built with Flutter and power
 LumaRay is built with Flutter for cross-platform UI and uses native Android components for VPN functionality:
 
 - **Flutter**: UI layer and business logic
-- **libbox**: Embedded sing-box library via JNI for VPN core functionality
+- **libcore**: NekoBox libcore (sing-box) via JNI for VPN core functionality
 - **VpnService**: Android VPN service for TUN interface management
 - **Platform Channels**: Communication between Flutter and native Android code
 
@@ -47,7 +47,7 @@ lib/
 android/
 └── app/src/main/kotlin/com/example/lumaray/
     ├── MainActivity.kt              # Method channel handler
-    ├── LibboxVpnService.kt         # VPN service implementation
+    ├── LibcoreVpnService.kt       # VPN service implementation
     ├── DefaultNetworkMonitor.kt    # Network monitoring
     └── LocalResolver.kt            # DNS resolver
 ```
@@ -57,26 +57,25 @@ android/
 - Flutter SDK (latest stable)
 - Android SDK (API level 21+)
 - Android device with VPN support
-- libbox.aar and libbox.so (native libraries)
+- libcore.aar (from NekoBoxForAndroid build)
 
 ## Building
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd LumaRay
-```
-
-2. Install dependencies:
+1. Clone the repository and install dependencies:
 ```bash
 flutter pub get
 ```
 
-3. Ensure libbox libraries are in place:
-   - `android/app/libs/libbox.aar`
-   - `android/app/src/main/jniLibs/arm64-v8a/libbox.so`
+2. Build libcore and copy it into the project (requires Go and Android NDK):
+```bash
+cd ../NekoBoxForAndroid
+./run lib core
+cd -
+./scripts/copy_libcore.sh
+```
+Or with custom NekoBox path: `./scripts/copy_libcore.sh /path/to/NekoBoxForAndroid`
 
-4. Build the APK:
+3. Build the APK:
 ```bash
 flutter build apk
 ```
