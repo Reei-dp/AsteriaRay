@@ -10,6 +10,7 @@ import '../models/vless_profile.dart';
 import '../models/vless_types.dart';
 import '../notifiers/profile_notifier.dart';
 import '../notifiers/vpn_notifier.dart';
+import '../widgets/acrylic_toast.dart';
 import 'profile_form_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -24,7 +25,7 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'LumaRay 🚀',
+          'Asteria 🚀',
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         actions: [
@@ -281,7 +282,7 @@ class HomeScreen extends StatelessWidget {
     if (!context.mounted) return;
     final text = data?.text?.trim();
     if (text == null || text.isEmpty) {
-      _showSnack(context, 'Буфер обмена пуст');
+      AcrylicToast.show(context, 'Буфер обмена пуст', icon: Icons.content_paste_rounded);
       return;
     }
     await _importUri(context, text);
@@ -297,7 +298,7 @@ class HomeScreen extends StatelessWidget {
     final file = result.files.first;
     final path = file.path;
     if (path == null) {
-      _showSnack(context, 'Не удалось прочитать файл');
+      AcrylicToast.show(context, 'Не удалось прочитать файл', icon: Icons.error_outline_rounded, isError: true);
       return;
     }
     final content = await File(path).readAsString();
@@ -308,7 +309,7 @@ class HomeScreen extends StatelessWidget {
         .where((e) => e.isNotEmpty)
         .toList();
     if (lines.isEmpty) {
-      _showSnack(context, 'Файл пуст');
+      AcrylicToast.show(context, 'Файл пуст', icon: Icons.description_rounded);
       return;
     }
     var imported = 0;
@@ -319,7 +320,7 @@ class HomeScreen extends StatelessWidget {
       } catch (_) {}
     }
     if (!context.mounted) return;
-    _showSnack(context, 'Импортировано: $imported');
+    AcrylicToast.show(context, 'Импортировано: $imported', icon: Icons.check_circle_rounded);
   }
 
   Future<void> _importUri(BuildContext context, String uri,
@@ -329,18 +330,18 @@ class HomeScreen extends StatelessWidget {
           await context.read<ProfileNotifier>().importUri(uri.trim());
       if (!context.mounted) return;
       if (!silent) {
-        _showSnack(context, 'Импортировано: ${profile.name}');
+        AcrylicToast.show(context, 'Импортировано: ${profile.name}', icon: Icons.check_circle_rounded);
       }
     } catch (e) {
       if (!context.mounted) return;
-      _showSnack(context, 'Ошибка импорта: $e');
+      AcrylicToast.show(context, 'Ошибка импорта: $e', icon: Icons.error_outline_rounded, isError: true);
     }
   }
 
   Future<void> _shareActive(BuildContext context) async {
     final active = context.read<ProfileNotifier>().activeProfile;
     if (active == null) {
-      _showSnack(context, 'Нет активного конфига');
+      AcrylicToast.show(context, 'Нет активного конфига', icon: Icons.vpn_key_rounded);
       return;
     }
     final uri = active.toUri();
@@ -361,7 +362,7 @@ class HomeScreen extends StatelessWidget {
 
     // Show switching indicator
     if (wasConnected || wasConnecting) {
-      _showSnack(context, 'Переключение на ${profile.name}...', duration: const Duration(seconds: 1));
+      AcrylicToast.show(context, 'Переключение на ${profile.name}...', duration: const Duration(seconds: 1), icon: Icons.swap_horiz_rounded);
     }
 
     // If VPN is connected or connecting, disconnect first
@@ -380,7 +381,7 @@ class HomeScreen extends StatelessWidget {
       await Future.delayed(const Duration(milliseconds: 200));
       await vpnNotifier.connect(profile);
       if (context.mounted) {
-        _showSnack(context, 'Подключение к ${profile.name}...', duration: const Duration(seconds: 1));
+        AcrylicToast.show(context, 'Подключение к ${profile.name}...', duration: const Duration(seconds: 1), icon: Icons.vpn_lock_rounded);
       }
     }
   }
@@ -390,7 +391,7 @@ class HomeScreen extends StatelessWidget {
     final vpnNotifier = context.read<VpnNotifier>();
     final activeProfile = profileNotifier.activeProfile;
     if (activeProfile == null) {
-      _showSnack(context, 'Выберите конфиг');
+      AcrylicToast.show(context, 'Выберите конфиг', icon: Icons.vpn_key_rounded);
       return;
     }
     await vpnNotifier.connect(activeProfile);
@@ -442,16 +443,6 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  void _showSnack(BuildContext context, String message, {Duration? duration}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: duration ?? const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-      ),
-    );
-  }
 }
 
 class _ConnectionBottomBar extends StatelessWidget {
