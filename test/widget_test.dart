@@ -63,6 +63,6 @@ void main() {
       ),
     );
 
-    expect(find.text('LumaRay VLESS'), findsOneWidget);
+    expect(find.text('Asteria VLESS'), findsOneWidget);
   });
 }
