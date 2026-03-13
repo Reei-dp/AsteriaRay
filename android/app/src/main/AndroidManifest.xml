@@ -7,8 +7,8 @@
 
     <application
         android:extractNativeLibs="true"
-        android:label="LumaRay"
-        android:name="${applicationName}"
+        android:label="Asteria"
+        android:name=".AsteriaApplication"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
@@ -33,7 +33,7 @@
             </intent-filter>
         </activity>
             <service
-                android:name=".LibboxVpnService"
+                android:name=".LibcoreVpnService"
                 android:exported="false"
                 android:permission="android.permission.BIND_VPN_SERVICE"
                 android:foregroundServiceType="dataSync" />

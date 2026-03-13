@@ -32,7 +32,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => VpnNotifier(xrayRunner)),
       ],
       child: MaterialApp(
-        title: 'LumaRay VLESS',
+        title: 'Asteria VLESS',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),
