@@ -109,7 +109,7 @@ class XrayRunner {
       'server_port': profile.port,
       'uuid': profile.uuid,
       'packet_encoding': '',
-      'domain_strategy': 'prefer_ipv4',
+      if (profile.flow != null && profile.flow!.isNotEmpty) 'flow': profile.flow,
       'tls': tlsEnabled
           ? {
               'enabled': true,
@@ -124,7 +124,7 @@ class XrayRunner {
                 'reality': {
                   'enabled': true,
                   'public_key': profile.realityPublicKey!,
-                  'short_id': profile.realityShortId!,
+                  'short_id': profile.realityShortId!.toString(),
                 },
             }
           : {
