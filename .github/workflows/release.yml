@@ -66,7 +66,7 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           name: Release v${{ steps.version.outputs.version }}
           body: |
-            ## LumaRay v${{ steps.version.outputs.version }}
+            ## AsteriaRay v${{ steps.version.outputs.version }}
             
             ### Downloads
             - **APK (Universal)**: app-release.apk

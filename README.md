@@ -1,4 +1,4 @@
-# LumaRay
+# AsteriaRay
 
 A modern Android VPN client for the VLESS protocol, built with Flutter and powered by sing-box.
 
@@ -16,7 +16,7 @@ A modern Android VPN client for the VLESS protocol, built with Flutter and power
 
 ## Architecture
 
-LumaRay is built with Flutter for cross-platform UI and uses native Android components for VPN functionality:
+AsteriaRay is built with Flutter for cross-platform UI and uses native Android components for VPN functionality:
 
 - **Flutter**: UI layer and business logic
 - **libcore**: NekoBox libcore (sing-box) via JNI for VPN core functionality
@@ -45,11 +45,13 @@ lib/
     └── log_screen.dart
 
 android/
-└── app/src/main/kotlin/com/example/lumaray/
-    ├── MainActivity.kt              # Method channel handler
-    ├── LibcoreVpnService.kt       # VPN service implementation
+└── app/src/main/kotlin/vpn/asteria/com/
+    ├── AsteriaApplication.kt       # Application entry, libcore init
+    ├── MainActivity.kt             # Method channel handler
+    ├── LibcoreVpnService.kt        # VPN service implementation
+    ├── LibcorePlatformInterface.kt # Platform callbacks for libcore
     ├── DefaultNetworkMonitor.kt    # Network monitoring
-    └── LocalResolver.kt            # DNS resolver
+    └── LocalResolver.kt           # DNS resolver
 ```
 
 ## Requirements
@@ -95,7 +97,7 @@ flutter run
 
 ## VLESS URI Format
 
-LumaRay supports standard VLESS URI format:
+AsteriaRay supports standard VLESS URI format:
 ```
 vless://uuid@host:port?security=tls&sni=example.com&alpn=h2,http/1.1&fp=chrome&type=ws&path=/path&host=example.com#ProfileName
 ```
