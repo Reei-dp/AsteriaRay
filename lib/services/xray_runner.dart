@@ -38,7 +38,10 @@ class XrayRunner {
     _logPath = p.join(workDir.path, 'log.txt');
   }
 
-  Future<XrayConfigContext> prepareConfig(VlessProfile profile) async {
+  Future<XrayConfigContext> prepareConfig(
+    VlessProfile profile, {
+    bool useDoh = false,
+  }) async {
     final workDir = _workDir ?? (await _ensurePrepared());
     final configPath = p.join(workDir, 'config.json');
     final logPath = _logPath ?? p.join(workDir, 'log.txt');
@@ -51,7 +54,7 @@ class XrayRunner {
       }
     } catch (_) {}
 
-    final config = _buildConfig(profile, workDir);
+    final config = _buildConfig(profile, workDir, useDoh);
     final configFile = File(configPath);
     await configFile.writeAsString(jsonEncode(config));
     return XrayConfigContext(
@@ -74,7 +77,118 @@ class XrayRunner {
     await file.writeAsBytes(bytes, flush: true);
   }
 
-  Map<String, dynamic> _buildConfig(VlessProfile profile, String workDir) {
+  /// True when [host] is a domain name (needs bootstrap DNS); false for literal IPs.
+  static bool _hostNeedsDnsBootstrap(String host) =>
+      InternetAddress.tryParse(host) == null;
+
+  /// [useDoh]: public DoH over `direct`. Otherwise UDP DNS via `proxy` (tunnel to VPS).
+  Map<String, dynamic> _buildDnsSection(VlessProfile profile, bool useDoh) {
+    final needsBootstrap = _hostNeedsDnsBootstrap(profile.host);
+
+    if (useDoh) {
+      return {
+        'independent_cache': true,
+        'servers': [
+          {
+            'tag': 'dns-local',
+            'address': 'local',
+            'detour': 'direct',
+          },
+          if (needsBootstrap)
+            {
+              'tag': 'dns-bootstrap',
+              'address': '1.1.1.1',
+              'detour': 'direct',
+              'strategy': 'ipv4_only',
+            },
+          // Legacy DoH URL without detour: TUN libcore rejects
+          // "detour to an empty direct outbound" for type:https + detour:direct.
+          {
+            'tag': 'dns-doh',
+            'address': 'https://1.1.1.1/dns-query',
+          },
+          {
+            'tag': 'dns-block',
+            'address': 'rcode://success',
+          },
+        ],
+        'rules': [
+          if (needsBootstrap)
+            {
+              'domain': [profile.host],
+              'server': 'dns-bootstrap',
+            },
+          {
+            'disable_cache': true,
+            'domain_suffix': [
+              'appcenter.ms',
+              'firebase.io',
+              'crashlytics.com',
+            ],
+            'server': 'dns-block',
+          },
+          {
+            'outbound': ['any'],
+            'server': 'dns-doh',
+          },
+        ],
+      };
+    }
+
+    return {
+      'independent_cache': true,
+      'servers': [
+        {
+          'tag': 'dns-local',
+          'address': 'local',
+          'detour': 'direct',
+        },
+        if (needsBootstrap)
+          {
+            'tag': 'dns-bootstrap',
+            'address': '1.1.1.1',
+            'detour': 'direct',
+            'strategy': 'ipv4_only',
+          },
+        {
+          'tag': 'dns-remote',
+          'address': '8.8.8.8',
+          'detour': 'proxy',
+          'strategy': 'ipv4_only',
+        },
+        {
+          'tag': 'dns-block',
+          'address': 'rcode://success',
+        },
+      ],
+      'rules': [
+        if (needsBootstrap)
+          {
+            'domain': [profile.host],
+            'server': 'dns-bootstrap',
+          },
+        {
+          'disable_cache': true,
+          'domain_suffix': [
+            'appcenter.ms',
+            'firebase.io',
+            'crashlytics.com',
+          ],
+          'server': 'dns-block',
+        },
+        {
+          'outbound': ['any'],
+          'server': 'dns-remote',
+        },
+      ],
+    };
+  }
+
+  Map<String, dynamic> _buildConfig(
+    VlessProfile profile,
+    String workDir,
+    bool useDoh,
+  ) {
     final tlsEnabled = profile.security != 'none';
     final transport = profile.transport;
     Map<String, dynamic>? transportSettings;
@@ -138,41 +252,7 @@ class XrayRunner {
         'level': 'debug',
         'timestamp': true,
       },
-      'dns': {
-        'independent_cache': true,
-        'servers': [
-          {
-            'tag': 'dns-local',
-            'address': 'local',
-            'detour': 'direct',
-          },
-          {
-            'tag': 'dns-direct',
-            'address': '1.1.1.1',
-            'detour': 'direct',
-            'strategy': 'ipv4_only',
-          },
-          {
-            'tag': 'dns-block',
-            'address': 'rcode://success',
-          },
-        ],
-        'rules': [
-          {
-            'outbound': ['any'],
-            'server': 'dns-direct',
-          },
-          {
-            'disable_cache': true,
-            'domain_suffix': [
-              'appcenter.ms',
-              'firebase.io',
-              'crashlytics.com',
-            ],
-            'server': 'dns-block',
-          },
-        ],
-      },
+      'dns': _buildDnsSection(profile, useDoh),
       'inbounds': [
         {
           'type': 'tun',
