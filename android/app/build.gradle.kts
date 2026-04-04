@@ -48,4 +48,5 @@ dependencies {
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
     // Required for NotificationCompat
     implementation("androidx.core:core-ktx:1.12.0")
+    implementation(project(":tunnel"))
 }
