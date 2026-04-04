@@ -23,6 +23,8 @@ class LibcoreVpnService : VpnService() {
 
     companion object {
         private const val TAG = "LibcoreVpnService"
+        /** Sent when the :libcorevpn service tears down (Flutter listens on main process). */
+        const val ACTION_LIBCORE_VPN_STOPPED = "vpn.asteria.ACTION_LIBCORE_VPN_STOPPED"
         private const val CHANNEL_ID = "asteria_vpn_channel"
         private const val NOTIFICATION_ID = 101
         private const val EXTRA_CONFIG = "configPath"
@@ -38,11 +40,6 @@ class LibcoreVpnService : VpnService() {
         private var currentProfileName: String? = null
         private var currentTransport: String? = null
         private var serviceInstance: LibcoreVpnService? = null
-        private var onVpnStoppedCallback: (() -> Unit)? = null
-
-        fun setOnVpnStoppedCallback(callback: (() -> Unit)?) {
-            onVpnStoppedCallback = callback
-        }
 
         fun start(context: Context, configPath: String, profileName: String? = null, transport: String? = null) {
             val intent = Intent(context, LibcoreVpnService::class.java).apply {
@@ -63,6 +60,7 @@ class LibcoreVpnService : VpnService() {
         }
 
         fun stop(context: Context) {
+            // boxInstance lives only in :libcorevpn; main process has null here.
             boxInstance?.close()
             boxInstance = null
             fileDescriptor?.close()
@@ -74,10 +72,16 @@ class LibcoreVpnService : VpnService() {
             currentProfileName = null
             currentTransport = null
             context.stopService(Intent(context, LibcoreVpnService::class.java))
-            onVpnStoppedCallback?.invoke()
+            // vpnStopped is delivered via ACTION_LIBCORE_VPN_STOPPED from :libcorevpn onDestroy
+            // (companion callback is only registered in the main process).
         }
 
-        fun getStats(): Pair<Long, Long> = Pair(uploadBytes, downloadBytes)
+        /** Stats are written by the :libcorevpn process; main process reads from disk. */
+        fun getStats(context: Context): Pair<Long, Long> = LibcoreVpnProcess.readStatsFromDisk(context)
+
+        /** True if the Libcore VPN process is up (sing-box runs in :libcorevpn). */
+        fun isLibcoreRunning(context: Context): Boolean =
+            LibcoreVpnProcess.isLibcoreProcessRunning(context)
 
         fun updateStats(upload: Long, download: Long) {
             uploadBytes = upload
@@ -113,6 +117,7 @@ class LibcoreVpnService : VpnService() {
         startForeground(NOTIFICATION_ID, notification)
 
         try {
+            Log.i(TAG, "step: read config")
             val configContent = File(configPath).readText()
             if (configContent.isBlank()) {
                 Log.e(TAG, "Config is empty")
@@ -120,13 +125,22 @@ class LibcoreVpnService : VpnService() {
                 return START_NOT_STICKY
             }
 
+            if (boxInstance != null) {
+                Log.w(TAG, "Closing stale boxInstance before new start")
+                boxInstance?.close()
+                boxInstance = null
+            }
+
+            Log.i(TAG, "step: newSingBoxInstance")
             boxInstance = Libcore.newSingBoxInstance(configContent, LocalResolver)
+            Log.i(TAG, "step: setAsMain")
             boxInstance!!.setAsMain()  // starts protect server so proxy sockets get protect() and bypass VPN
+            Log.i(TAG, "step: sing-box start()")
             boxInstance!!.start()
 
             startStatsTracking()
             Log.i(TAG, "Libcore service started")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to start libcore service: ${e.message}", e)
             stopSelf()
         }
@@ -150,6 +164,17 @@ class LibcoreVpnService : VpnService() {
         currentTransport = null
         serviceInstance = null
         super.onDestroy()
+        sendStoppedBroadcast()
+    }
+
+    private fun sendStoppedBroadcast() {
+        try {
+            sendBroadcast(
+                Intent(ACTION_LIBCORE_VPN_STOPPED).setPackage(packageName),
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "sendStoppedBroadcast", e)
+        }
     }
 
     override fun onBind(intent: Intent?) = null
@@ -197,6 +222,33 @@ class LibcoreVpnService : VpnService() {
             addresses.add(Pair("fdfe:dcba:9876::1", 126))
         }
 
+        val hasIpv4 = addresses.any { !it.first.contains(":") }
+        val hasIpv6 = addresses.any { it.first.contains(":") }
+
+        var pfd: ParcelFileDescriptor? = null
+        repeat(8) { attempt ->
+            pfd = tryEstablishVpnTun(mtu, addresses, hasIpv4, hasIpv6)
+            if (pfd != null) {
+                fileDescriptor = pfd
+                Log.i(TAG, "VPN established fd=${pfd!!.fd}")
+                return pfd!!.fd
+            }
+            Log.w(TAG, "establish() returned null (attempt ${attempt + 1}/8), VPN slot may be busy")
+            try {
+                Thread.sleep(400)
+            } catch (_: InterruptedException) {
+            }
+        }
+        throw IllegalStateException("Failed to establish VPN")
+    }
+
+    /** Fresh [Builder] each attempt — [Builder.establish] may not be safely retried on one builder. */
+    private fun tryEstablishVpnTun(
+        mtu: Int,
+        addresses: MutableList<Pair<String, Int>>,
+        hasIpv4: Boolean,
+        hasIpv6: Boolean,
+    ): ParcelFileDescriptor? {
         val configureIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java).apply {
@@ -218,28 +270,20 @@ class LibcoreVpnService : VpnService() {
             builder.addAddress(addr, prefix)
         }
 
-        // DNS must point to the TUN "router" (sing-box) so DNS queries go through the tunnel
-        val hasIpv4 = addresses.any { !it.first.contains(":") }
-        val hasIpv6 = addresses.any { it.first.contains(":") }
         if (hasIpv4) builder.addDnsServer("172.19.0.2")
         if (hasIpv6) builder.addDnsServer("fdfe:dcba:9876::2")
         if (!hasIpv4 && !hasIpv6) builder.addDnsServer("172.19.0.2")
-        // Explicit route for TUN DNS router so DNS goes through tunnel (like NekoBox)
         if (hasIpv4) builder.addRoute("172.19.0.2", 32)
         builder.addRoute("0.0.0.0", 0)
         builder.addRoute("::", 0)
 
-        // Use system default network; explicit setUnderlyingNetworks can break on some devices
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
             val network = (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)?.activeNetwork
                 ?: try { DefaultNetworkMonitor.require() } catch (_: Exception) { null }
             network?.let { builder.setUnderlyingNetworks(arrayOf(it)) }
         }
 
-        val pfd = builder.establish() ?: throw IllegalStateException("Failed to establish VPN")
-        fileDescriptor = pfd
-        Log.i(TAG, "VPN established fd=${pfd.fd}")
-        return pfd.fd
+        return builder.establish()
     }
 
     private fun startStatsTracking() {
@@ -263,6 +307,7 @@ class LibcoreVpnService : VpnService() {
                             currentTxSpeed = txDiff
                             lastUidRxBytes = currentRxBytes
                             lastUidTxBytes = currentTxBytes
+                            LibcoreVpnProcess.writeStatsToDisk(applicationContext, uploadBytes, downloadBytes)
                             updateNotificationInternal()
                         }
                     }
