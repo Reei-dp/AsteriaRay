@@ -1,13 +1,16 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/vless_profile.dart';
+import '../models/stored_vpn_profile.dart';
+import 'stored_profile_codec.dart';
 
 class ProfileStore {
   ProfileStore._(this._prefs);
 
   final SharedPreferences _prefs;
 
-  static const _profilesKey = 'vless_profiles';
+  /// Legacy list without a `protocol` field (VLESS-only).
+  static const _legacyProfilesKey = 'vless_profiles';
+  static const _profilesKey = 'vpn_stored_profiles_v2';
   static const _activeKey = 'vless_active_profile';
 
   static Future<ProfileStore> create() async {
@@ -15,16 +18,31 @@ class ProfileStore {
     return ProfileStore._(prefs);
   }
 
-  Future<List<VlessProfile>> loadProfiles() async {
-    final raw = _prefs.getStringList(_profilesKey) ?? [];
-    return raw
-        .map((e) => VlessProfile.fromJson(e))
-        .whereType<VlessProfile>()
-        .toList();
+  Future<List<StoredVpnProfile>> loadProfiles() async {
+    final v2 = _prefs.getStringList(_profilesKey);
+    if (v2 != null && v2.isNotEmpty) {
+      return v2
+          .map(StoredProfileCodec.decode)
+          .whereType<StoredVpnProfile>()
+          .toList();
+    }
+
+    final legacy = _prefs.getStringList(_legacyProfilesKey);
+    if (legacy != null && legacy.isNotEmpty) {
+      final migrated = legacy
+          .map(StoredProfileCodec.decode)
+          .whereType<StoredVpnProfile>()
+          .toList();
+      await saveProfiles(migrated);
+      await _prefs.remove(_legacyProfilesKey);
+      return migrated;
+    }
+
+    return [];
   }
 
-  Future<void> saveProfiles(List<VlessProfile> profiles) async {
-    final encoded = profiles.map((p) => p.toJson()).toList();
+  Future<void> saveProfiles(List<StoredVpnProfile> profiles) async {
+    final encoded = profiles.map(StoredProfileCodec.encode).toList();
     await _prefs.setStringList(_profilesKey, encoded);
   }
 
@@ -40,4 +58,3 @@ class ProfileStore {
     }
   }
 }
-

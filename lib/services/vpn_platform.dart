@@ -5,15 +5,18 @@ class VpnPlatform {
   static const _channel = MethodChannel('lumaray/vpn');
   static const _eventChannel = EventChannel('lumaray/vpn/events');
   
-  Function()? onVpnStopped;
+  /// Native teardown: `vpnStopped`, `vpnStopped:libcore`, `vpnStopped:awg`.
+  void Function(String event)? onVpnStopped;
   StreamSubscription<dynamic>? _eventSubscription;
 
   VpnPlatform() {
     // Listen for events from native side
     _eventSubscription = _eventChannel.receiveBroadcastStream().listen(
       (event) {
-        if (event == 'vpnStopped') {
-          onVpnStopped?.call();
+        if (event is String &&
+            (event == 'vpnStopped' ||
+                event.startsWith('vpnStopped:'))) {
+          onVpnStopped?.call(event);
         }
       },
       onError: (error) {
@@ -32,6 +35,7 @@ class VpnPlatform {
     return result ?? false;
   }
 
+  /// Sing-box / libcore (VLESS) tunnel.
   Future<void> startVpn({
     required String configPath,
     required String workDir,
@@ -40,11 +44,24 @@ class VpnPlatform {
     String? transport,
   }) async {
     await _channel.invokeMethod('startVpn', {
+      'mode': 'singbox',
       'configPath': configPath,
       'workDir': workDir,
       'logPath': logPath,
       'profileName': profileName,
       'transport': transport,
+    });
+  }
+
+  /// AmneziaWG userspace tunnel (Android [GoBackend]).
+  Future<void> startAwgVpn({
+    required String conf,
+    required String profileName,
+  }) async {
+    await _channel.invokeMethod('startVpn', {
+      'mode': 'awg',
+      'conf': conf,
+      'profileName': profileName,
     });
   }
 

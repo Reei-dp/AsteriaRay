@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:lumaray/notifiers/app_settings_notifier.dart';
 import 'package:lumaray/notifiers/profile_notifier.dart';
 import 'package:lumaray/notifiers/vpn_notifier.dart';
 import 'package:lumaray/screens/home_screen.dart';
@@ -22,9 +23,11 @@ class _FakeRunner extends XrayRunner {
   Future<void> prepare() async {}
 
   @override
-  Future<XrayConfigContext> prepareConfig(profile) async {
+  Future<XrayConfigContext> prepareConfig(
+    profile, {
+    bool useDoh = false,
+  }) async {
     return XrayConfigContext(
-      binPath: '/tmp/xray',
       configPath: '/tmp/config.json',
       workDir: '/tmp',
       logPath: '/tmp/log.txt',
@@ -37,7 +40,13 @@ class _FakePlatform extends VpnPlatform {
   Future<bool> prepareVpn() async => true;
 
   @override
-  Future<void> startVpn({required String binPath, required String configPath, required String workDir, required String logPath}) async {}
+  Future<void> startVpn({
+    required String configPath,
+    required String workDir,
+    required String logPath,
+    String? profileName,
+    String? transport,
+  }) async {}
 
   @override
   Future<void> stopVpn() async {}
@@ -50,6 +59,7 @@ void main() {
     final store = await ProfileStore.create();
     final profileNotifier = ProfileNotifier(store);
     await profileNotifier.init();
+    final appSettings = await AppSettingsNotifier.create();
     final runner = _FakeRunner();
     final platform = _FakePlatform();
 
@@ -57,12 +67,19 @@ void main() {
       MultiProvider(
         providers: [
           ChangeNotifierProvider.value(value: profileNotifier),
-          ChangeNotifierProvider(create: (_) => VpnNotifier(runner, platform: platform)),
+          ChangeNotifierProvider.value(value: appSettings),
+          ChangeNotifierProvider(
+            create: (_) => VpnNotifier(
+              runner,
+              platform: platform,
+              appSettings: appSettings,
+            ),
+          ),
         ],
         child: const MaterialApp(home: HomeScreen()),
       ),
     );
 
-    expect(find.text('Asteria VLESS'), findsOneWidget);
+    expect(find.text('Asteria 🚀'), findsOneWidget);
   });
 }
