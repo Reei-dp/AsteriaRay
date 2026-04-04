@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'notifiers/app_settings_notifier.dart';
 import 'notifiers/profile_notifier.dart';
 import 'notifiers/vpn_notifier.dart';
 import 'screens/home_screen.dart';
@@ -12,16 +13,27 @@ Future<void> main() async {
   final store = await ProfileStore.create();
   final profileNotifier = ProfileNotifier(store);
   await profileNotifier.init();
+  final appSettings = await AppSettingsNotifier.create();
   final xrayRunner = XrayRunner();
   await xrayRunner.prepare();
 
-  runApp(MyApp(profileNotifier: profileNotifier, xrayRunner: xrayRunner));
+  runApp(MyApp(
+    profileNotifier: profileNotifier,
+    appSettings: appSettings,
+    xrayRunner: xrayRunner,
+  ));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key, required this.profileNotifier, required this.xrayRunner});
+  const MyApp({
+    super.key,
+    required this.profileNotifier,
+    required this.appSettings,
+    required this.xrayRunner,
+  });
 
   final ProfileNotifier profileNotifier;
+  final AppSettingsNotifier appSettings;
   final XrayRunner xrayRunner;
 
   @override
@@ -29,7 +41,10 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: profileNotifier),
-        ChangeNotifierProvider(create: (_) => VpnNotifier(xrayRunner)),
+        ChangeNotifierProvider.value(value: appSettings),
+        ChangeNotifierProvider(
+          create: (_) => VpnNotifier(xrayRunner, appSettings: appSettings),
+        ),
       ],
       child: MaterialApp(
         title: 'Asteria VLESS',
