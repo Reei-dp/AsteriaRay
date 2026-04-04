@@ -2,11 +2,11 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-/// Полупрозрачный акриловый тост (glassmorphism) поверх контента.
+/// Semi-transparent acrylic-style toast (glassmorphism) over content.
 class AcrylicToast {
   static OverlayEntry? _currentEntry;
 
-  /// Показывает тост с размытием фона и полупрозрачным фоном.
+  /// Shows a toast with blurred backdrop and semi-transparent surface.
   static void show(
     BuildContext context,
     String message, {
