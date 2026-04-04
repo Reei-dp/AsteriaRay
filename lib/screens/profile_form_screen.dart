@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../models/stored_vpn_profile.dart';
 import '../models/vless_profile.dart';
 import '../widgets/acrylic_toast.dart';
 import '../models/vless_types.dart';
@@ -508,7 +509,7 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
             _hostHeader.text.trim().isEmpty ? null : _hostHeader.text.trim(),
         remark: _remark.text.trim().isEmpty ? null : _remark.text.trim(),
       );
-      await notifier.addOrUpdate(updated);
+      await notifier.addOrUpdate(VlessStoredVpnProfile(updated));
     }
 
     if (mounted) {
