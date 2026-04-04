@@ -6,12 +6,15 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../models/stored_vpn_profile.dart';
 import '../models/vless_profile.dart';
-import '../models/vless_types.dart';
+import '../models/vpn_protocol.dart';
+import '../services/config_import_detector.dart';
 import '../notifiers/profile_notifier.dart';
 import '../notifiers/vpn_notifier.dart';
 import '../widgets/acrylic_toast.dart';
 import 'profile_form_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -29,6 +32,17 @@ class HomeScreen extends StatelessWidget {
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Настройки',
+            icon: const Icon(Icons.settings_rounded),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SettingsScreen(),
+                ),
+              );
+            },
+          ),
           IconButton(
             tooltip: 'Импорт из буфера',
             icon: const Icon(Icons.content_paste),
@@ -84,123 +98,44 @@ class HomeScreen extends StatelessWidget {
                             ],
                           ),
                         )
-                      : ListView.builder(
+                      : ListView(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          itemCount: profiles.length,
-                          itemBuilder: (context, index) {
-                            final profile = profiles[index];
-                            final isActive =
-                                profileNotifier.activeId == profile.id;
-                            return AnimatedContainer(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                              margin: const EdgeInsets.only(bottom: 12),
-                              child: Card(
-                                elevation: isActive ? 4 : 2,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(16),
-                                  onTap: () => _switchProfile(context, profile, isActive),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Row(
-                                      children: [
-                                        AnimatedContainer(
-                                          duration: const Duration(milliseconds: 300),
-                                          curve: Curves.easeInOut,
-                                          width: 48,
-                                          height: 48,
-                                          decoration: BoxDecoration(
-                                            color: isActive
-                                                ? Theme.of(context).colorScheme.primary.withOpacity(0.2)
-                                                : Theme.of(context).colorScheme.surface.withOpacity(0.5),
-                                            shape: BoxShape.circle,
-                                            border: isActive
-                                                ? Border.all(
-                                                    color: Theme.of(context).colorScheme.primary.withOpacity(0.5),
-                                                    width: 2,
-                                                  )
-                                                : null,
-                                          ),
-                                          child: AnimatedSwitcher(
-                                            duration: const Duration(milliseconds: 200),
-                                            transitionBuilder: (child, animation) {
-                                              return ScaleTransition(
-                                                scale: animation,
-                                                child: child,
-                                              );
-                                            },
-                                            child: Icon(
-                                              isActive ? Icons.check_circle_rounded : Icons.circle_outlined,
-                                              key: ValueKey(isActive),
-                                              color: isActive
-                                                  ? Theme.of(context).colorScheme.primary
-                                                  : Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                                            ),
-                                          ),
-                                        ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              profile.name,
-                                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                                    fontWeight: FontWeight.w600,
-                                                    fontFeatures: const [
-                                                      FontFeature.enable('liga'),
-                                                    ],
-                                                  ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Row(
-                                              children: [
-                                                Icon(
-                                                  Icons.dns_rounded,
-                                                  size: 14,
-                                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                                                ),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  '${profile.host}:${profile.port}',
-                                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                                                      ),
-                                                ),
-                                                const SizedBox(width: 12),
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                                  decoration: BoxDecoration(
-                                                    color: Theme.of(context).colorScheme.primary.withOpacity(0.15),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                  ),
-                                                  child: Text(
-                                                    transportToString(profile.transport).toUpperCase(),
-                                                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                                          color: Theme.of(context).colorScheme.primary,
-                                                          fontWeight: FontWeight.w600,
-                                                          fontSize: 10,
-                                                        ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      _ProfileActions(
-                                        profile: profile,
-                                        onEdit: () => _openEditor(context, profile: profile),
-                                        onDelete: () =>
-                                            _confirmDelete(context, profile.id),
-                                      ),
-                                    ],
+                          children: [
+                            for (var i = 0; i < profiles.length; i++) ...[
+                              if (i == 0 || profiles[i].protocol != profiles[i - 1].protocol)
+                                Padding(
+                                  padding: EdgeInsets.only(
+                                    top: i == 0 ? 0 : 20,
+                                    bottom: 10,
+                                    left: 2,
+                                    right: 2,
                                   ),
+                                  child: _ProtocolSectionHeader(protocol: profiles[i].protocol),
                                 ),
+                              _ProfileCard(
+                                profile: profiles[i],
+                                isActive: profileNotifier.activeId == profiles[i].id,
+                                onTap: () => _switchProfile(
+                                  context,
+                                  profiles[i],
+                                  profileNotifier.activeId == profiles[i].id,
+                                ),
+                                onEdit: () {
+                                  final p = profiles[i];
+                                  if (p is VlessStoredVpnProfile) {
+                                    _openEditor(context, profile: p.profile);
+                                  } else {
+                                    AcrylicToast.show(
+                                      context,
+                                      'Редактор AmneziaWG будет позже',
+                                      icon: Icons.edit_outlined,
+                                    );
+                                  }
+                                },
+                                onDelete: () => _confirmDelete(context, profiles[i].id),
                               ),
-                            ),
-                            );
-                          },
+                            ],
+                          ],
                         ),
                     ),
                     _ConnectionBottomBar(
@@ -285,7 +220,7 @@ class HomeScreen extends StatelessWidget {
       AcrylicToast.show(context, 'Буфер обмена пуст', icon: Icons.content_paste_rounded);
       return;
     }
-    await _importUri(context, text);
+    await _importPayload(context, text);
   }
 
   Future<void> _importFromFile(BuildContext context) async {
@@ -303,19 +238,24 @@ class HomeScreen extends StatelessWidget {
     }
     final content = await File(path).readAsString();
     if (!context.mounted) return;
+    final trimmed = content.trim();
+    if (trimmed.isEmpty) {
+      AcrylicToast.show(context, 'Файл пуст', icon: Icons.description_rounded);
+      return;
+    }
+    if (ConfigImportDetector.detect(trimmed) == ConfigImportKind.wireGuardConf) {
+      await _importPayload(context, trimmed);
+      return;
+    }
     final lines = content
         .split(RegExp(r'\r?\n'))
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
         .toList();
-    if (lines.isEmpty) {
-      AcrylicToast.show(context, 'Файл пуст', icon: Icons.description_rounded);
-      return;
-    }
     var imported = 0;
     for (final line in lines) {
       try {
-        await _importUri(context, line, silent: true);
+        await _importUriLine(context, line, silent: true);
         imported++;
       } catch (_) {}
     }
@@ -323,7 +263,23 @@ class HomeScreen extends StatelessWidget {
     AcrylicToast.show(context, 'Импортировано: $imported', icon: Icons.check_circle_rounded);
   }
 
-  Future<void> _importUri(BuildContext context, String uri,
+  Future<void> _importPayload(BuildContext context, String text,
+      {bool silent = false}) async {
+    try {
+      final profile =
+          await context.read<ProfileNotifier>().importFromClipboard(text);
+      if (!context.mounted) return;
+      if (!silent) {
+        AcrylicToast.show(context, 'Импортировано: ${profile.name}', icon: Icons.check_circle_rounded);
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      AcrylicToast.show(context, 'Ошибка импорта: $e', icon: Icons.error_outline_rounded, isError: true);
+    }
+  }
+
+  /// One file line: VLESS URI only (multi-line `.conf` is handled in [_importFromFile]).
+  Future<void> _importUriLine(BuildContext context, String uri,
       {bool silent = false}) async {
     try {
       final profile =
@@ -344,13 +300,17 @@ class HomeScreen extends StatelessWidget {
       AcrylicToast.show(context, 'Нет активного конфига', icon: Icons.vpn_key_rounded);
       return;
     }
-    final uri = active.toUri();
-    await Share.share(uri, subject: active.name);
+    switch (active) {
+      case VlessStoredVpnProfile(:final profile):
+        await Share.share(profile.toUri(), subject: profile.name);
+      case AmneziaWgStoredVpnProfile(:final profile):
+        await Share.share(profile.conf, subject: profile.name);
+    }
   }
 
   Future<void> _switchProfile(
     BuildContext context,
-    VlessProfile profile,
+    StoredVpnProfile profile,
     bool isCurrentlyActive,
   ) async {
     if (isCurrentlyActive) return; // Already active, do nothing
@@ -372,16 +332,18 @@ class HomeScreen extends StatelessWidget {
       await Future.delayed(const Duration(milliseconds: 300));
     }
 
-    // Switch to new profile
     await profileNotifier.setActive(profile.id);
 
-    // If VPN was connected, automatically reconnect with new profile
     if (wasConnected) {
-      // Small delay to show the switch animation
       await Future.delayed(const Duration(milliseconds: 200));
       await vpnNotifier.connect(profile);
       if (context.mounted) {
-        AcrylicToast.show(context, 'Подключение к ${profile.name}...', duration: const Duration(seconds: 1), icon: Icons.vpn_lock_rounded);
+        AcrylicToast.show(
+          context,
+          'Подключение к ${profile.name}...',
+          duration: const Duration(seconds: 1),
+          icon: Icons.vpn_lock_rounded,
+        );
       }
     }
   }
@@ -394,7 +356,17 @@ class HomeScreen extends StatelessWidget {
       AcrylicToast.show(context, 'Выберите конфиг', icon: Icons.vpn_key_rounded);
       return;
     }
-    await vpnNotifier.connect(activeProfile);
+    final ok = await vpnNotifier.connect(activeProfile);
+    if (!context.mounted) return;
+    if (!ok) {
+      final err = vpnNotifier.lastError;
+      AcrylicToast.show(
+        context,
+        err != null && err.isNotEmpty ? err : 'Не удалось подключиться',
+        icon: Icons.error_outline_rounded,
+        isError: true,
+      );
+    }
   }
 
   void _openEditor(BuildContext context, {VlessProfile? profile}) {
@@ -445,6 +417,195 @@ class HomeScreen extends StatelessWidget {
 
 }
 
+/// Visual block header when the protocol changes in the profile list.
+class _ProtocolSectionHeader extends StatelessWidget {
+  const _ProtocolSectionHeader({required this.protocol});
+
+  final VpnProtocol protocol;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (Color accent, IconData icon, String title) = switch (protocol) {
+      VpnProtocol.vless => (
+          const Color(0xFF00D9FF),
+          Icons.dns_rounded,
+          'VLESS',
+        ),
+      VpnProtocol.amneziaWg => (
+          const Color(0xFF00D9A0),
+          Icons.shield_rounded,
+          'AmneziaWG',
+        ),
+    };
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withOpacity(0.35)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 3,
+              height: 22,
+              decoration: BoxDecoration(
+                color: accent,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Icon(icon, size: 20, color: accent),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                  color: accent,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileCard extends StatelessWidget {
+  const _ProfileCard({
+    required this.profile,
+    required this.isActive,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final StoredVpnProfile profile;
+  final bool isActive;
+  final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final accent = switch (profile) {
+      VlessStoredVpnProfile() => const Color(0xFF00D9FF),
+      AmneziaWgStoredVpnProfile() => const Color(0xFF00D9A0),
+    };
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        elevation: isActive ? 4 : 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: isActive ? accent.withOpacity(0.45) : Colors.transparent,
+            width: 1,
+          ),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: isActive ? accent.withOpacity(0.2) : scheme.surface.withOpacity(0.5),
+                    shape: BoxShape.circle,
+                    border: isActive
+                        ? Border.all(
+                            color: accent.withOpacity(0.55),
+                            width: 2,
+                          )
+                        : null,
+                  ),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    transitionBuilder: (child, animation) {
+                      return ScaleTransition(
+                        scale: animation,
+                        child: child,
+                      );
+                    },
+                    child: Icon(
+                      isActive ? Icons.check_circle_rounded : Icons.circle_outlined,
+                      key: ValueKey(isActive),
+                      color: isActive ? accent : scheme.onSurface.withOpacity(0.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        profile.name,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              fontFeatures: const [
+                                FontFeature.enable('liga'),
+                              ],
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            profile is VlessStoredVpnProfile ? Icons.dns_rounded : Icons.shield_outlined,
+                            size: 14,
+                            color: scheme.onSurface.withOpacity(0.6),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              switch (profile) {
+                                VlessStoredVpnProfile(:final profile) =>
+                                  '${profile.host}:${profile.port}',
+                                AmneziaWgStoredVpnProfile(:final profile) =>
+                                  profile.endpointHint,
+                              },
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: scheme.onSurface.withOpacity(0.6),
+                                  ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                _ProfileActions(
+                  profile: profile,
+                  onEdit: onEdit,
+                  onDelete: onDelete,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ConnectionBottomBar extends StatelessWidget {
   const _ConnectionBottomBar({
     required this.vpnStatus,
@@ -456,7 +617,7 @@ class _ConnectionBottomBar extends StatelessWidget {
   });
 
   final VpnStatus vpnStatus;
-  final VlessProfile? active;
+  final StoredVpnProfile? active;
   final int uploadBytes;
   final int downloadBytes;
   final VoidCallback onStart;
@@ -483,7 +644,11 @@ class _ConnectionBottomBar extends StatelessWidget {
       VpnStatus.disconnected => 'Отключено',
     };
     final statusColor = switch (vpnStatus) {
-      VpnStatus.connected => const Color(0xFF00D9FF), // Blue like VLESS badge
+      VpnStatus.connected => switch (active) {
+          VlessStoredVpnProfile() => const Color(0xFF00D9FF),
+          AmneziaWgStoredVpnProfile() => const Color(0xFF00D9A0),
+          null => const Color(0xFF00D9FF),
+        },
       VpnStatus.connecting => const Color(0xFFFFB800),
       VpnStatus.error => const Color(0xFFFF4444),
       VpnStatus.disconnected => Colors.white.withOpacity(0.6),
@@ -552,7 +717,7 @@ class _ConnectionBottomBar extends StatelessWidget {
                       ),
                       if (active != null)
                         Text(
-                          '${active!.name}',
+                          active!.name,
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: Colors.white.withOpacity(0.8),
                               ),
@@ -578,7 +743,7 @@ class _ProfileActions extends StatelessWidget {
     required this.onDelete,
   });
 
-  final VlessProfile profile;
+  final StoredVpnProfile profile;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
