@@ -45,14 +45,25 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "lumaray");
+    gtk_header_bar_set_title(header_bar, "AsteriaRay");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "lumaray");
+    gtk_window_set_title(window, "AsteriaRay");
   }
 
-  gtk_window_set_default_size(window, 1280, 720);
+  const gint kWindowWidth = 550;
+  const gint kDefaultHeight = 800;
+  gtk_window_set_default_size(window, kWindowWidth, kDefaultHeight);
+  // Fixed width (narrow phone-style layout); height stays resizable.
+  GdkGeometry geometry;
+  geometry.min_width = kWindowWidth;
+  geometry.max_width = kWindowWidth;
+  geometry.min_height = 480;
+  geometry.max_height = 10000;
+  gtk_window_set_geometry_hints(
+      window, nullptr, &geometry,
+      static_cast<GdkWindowHints>(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
