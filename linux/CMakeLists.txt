@@ -2,9 +2,15 @@
 cmake_minimum_required(VERSION 3.13)
 project(runner LANGUAGES CXX)
 
+# Clang 19+: nlohmann/json in flutter_secure_storage_linux uses literal-operator syntax that
+# triggers -Wdeprecated-literal-operator; plugin targets use -Werror, so builds fail on Arch etc.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-literal-operator>)
+endif()
+
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "lumaray")
+set(BINARY_NAME "asteriaray")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
 set(APPLICATION_ID "vpn.asteria.com")
@@ -93,6 +99,31 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
+
+# Optional: place `sing-box` next to the Flutter binary (see tools/fetch_singbox_linux.sh).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sing-box")
+  install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/sing-box"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()
+
+# AmneziaWG: awg + awg-quick must share the same directory (see tools/fetch_amneziawg_tools_linux.sh).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/awg")
+  install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/awg"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/awg-quick")
+  install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/awg-quick"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()
+# Userspace fallback when the amneziawg kernel module is missing (see tools/fetch_amneziawg_go_linux.sh).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/amneziawg-go")
+  install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/amneziawg-go"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)

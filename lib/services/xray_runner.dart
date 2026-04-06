@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -82,7 +83,115 @@ class XrayRunner {
       InternetAddress.tryParse(host) == null;
 
   /// [useDoh]: public DoH over `direct`. Otherwise UDP DNS via `proxy` (tunnel to VPS).
+  ///
+  /// Linux uses the sing-box 1.12+ DNS schema (typed servers, `final`, `predefined` rules).
+  /// Android libcore still expects the legacy `address` strings.
   Map<String, dynamic> _buildDnsSection(VlessProfile profile, bool useDoh) {
+    if (!kIsWeb && Platform.isLinux) {
+      return _buildDnsSectionSingBox12(profile, useDoh);
+    }
+    return _buildDnsSectionLegacy(profile, useDoh);
+  }
+
+  /// sing-box ≥1.12 — see https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats
+  Map<String, dynamic> _buildDnsSectionSingBox12(
+    VlessProfile profile,
+    bool useDoh,
+  ) {
+    final needsBootstrap = _hostNeedsDnsBootstrap(profile.host);
+    const analyticsSuffixes = [
+      'appcenter.ms',
+      'firebase.io',
+      'crashlytics.com',
+    ];
+
+    if (useDoh) {
+      return {
+        'independent_cache': true,
+        'strategy': 'ipv4_only',
+        'servers': [
+          {
+            'type': 'local',
+            'tag': 'dns-local',
+            'detour': 'direct',
+          },
+          if (needsBootstrap)
+            {
+              'type': 'udp',
+              'tag': 'dns-bootstrap',
+              'server': '1.1.1.1',
+              'detour': 'direct',
+            },
+          {
+            'type': 'https',
+            'tag': 'dns-doh',
+            'server': '1.1.1.1',
+            'path': '/dns-query',
+          },
+        ],
+        'rules': [
+          if (needsBootstrap)
+            {
+              'domain': [profile.host],
+              'action': 'route',
+              'server': 'dns-bootstrap',
+            },
+          {
+            'domain_suffix': analyticsSuffixes,
+            'action': 'predefined',
+            'rcode': 'NOERROR',
+            'answer': <dynamic>[],
+          },
+        ],
+        'final': 'dns-doh',
+      };
+    }
+
+    return {
+      'independent_cache': true,
+      'strategy': 'ipv4_only',
+      'servers': [
+        {
+          'type': 'local',
+          'tag': 'dns-local',
+          'detour': 'direct',
+        },
+        if (needsBootstrap)
+          {
+            'type': 'udp',
+            'tag': 'dns-bootstrap',
+            'server': '1.1.1.1',
+            'detour': 'direct',
+          },
+        {
+          'type': 'udp',
+          'tag': 'dns-remote',
+          'server': '8.8.8.8',
+          'detour': 'proxy',
+        },
+      ],
+      'rules': [
+        if (needsBootstrap)
+          {
+            'domain': [profile.host],
+            'action': 'route',
+            'server': 'dns-bootstrap',
+          },
+        {
+          'domain_suffix': analyticsSuffixes,
+          'action': 'predefined',
+          'rcode': 'NOERROR',
+          'answer': <dynamic>[],
+        },
+      ],
+      'final': 'dns-remote',
+    };
+  }
+
+  Map<String, dynamic> _buildDnsSectionLegacy(
+    VlessProfile profile,
+    bool useDoh,
+  ) {
     final needsBootstrap = _hostNeedsDnsBootstrap(profile.host);
 
     if (useDoh) {
@@ -247,6 +356,95 @@ class XrayRunner {
       if (transportSettings != null) 'transport': transportSettings,
     };
 
+    // sing-box ≥1.13: sniff/domain_strategy on inbounds removed — use route rule actions.
+    // Android libcore keeps legacy inbound fields.
+    final modernSingBox = !kIsWeb && Platform.isLinux;
+
+    final tunInbound = <String, dynamic>{
+      'type': 'tun',
+      'tag': 'tun-in',
+      'address': ['172.19.0.1/30'],
+      'auto_route': true,
+      'strict_route': false,
+      'mtu': 1500,
+      'stack': 'mixed',
+      'endpoint_independent_nat': true,
+    };
+    if (!modernSingBox) {
+      tunInbound['sniff'] = true;
+      tunInbound['sniff_override_destination'] = false;
+      tunInbound['domain_strategy'] = 'ipv4_only';
+    }
+
+    final mixedInbound = <String, dynamic>{
+      'type': 'mixed',
+      'tag': 'mixed-in',
+      'listen': '127.0.0.1',
+      'listen_port': 2080,
+    };
+    if (!modernSingBox) {
+      mixedInbound['sniff'] = true;
+      mixedInbound['sniff_override_destination'] = false;
+      mixedInbound['domain_strategy'] = 'ipv4_only';
+    }
+
+    final routeRules = <Map<String, dynamic>>[
+      if (modernSingBox) ...[
+        {
+          'inbound': 'tun-in',
+          'action': 'resolve',
+          'strategy': 'ipv4_only',
+        },
+        {'inbound': 'tun-in', 'action': 'sniff'},
+        {
+          'inbound': 'mixed-in',
+          'action': 'resolve',
+          'strategy': 'ipv4_only',
+        },
+        {'inbound': 'mixed-in', 'action': 'sniff'},
+      ],
+      {
+        'action': 'hijack-dns',
+        'port': [53],
+      },
+      {
+        'action': 'hijack-dns',
+        'protocol': ['dns'],
+      },
+      {
+        'outbound': 'direct',
+        'domain': [profile.host],
+      },
+      {
+        'action': 'reject',
+        'domain_suffix': [
+          'appcenter.ms',
+          'firebase.io',
+          'crashlytics.com',
+        ],
+      },
+      {
+        'action': 'reject',
+        'ip_cidr': ['224.0.0.0/3', 'ff00::/8'],
+        'source_ip_cidr': ['224.0.0.0/3', 'ff00::/8'],
+      },
+    ];
+
+    final needsBootstrap = _hostNeedsDnsBootstrap(profile.host);
+    final routeBody = <String, dynamic>{
+      'auto_detect_interface': true,
+      'rules': routeRules,
+      'final': 'proxy',
+    };
+    // sing-box ≥1.12: outbound dial must know which dns server resolves domain names (VLESS server, etc.)
+    if (modernSingBox) {
+      routeBody['default_domain_resolver'] = {
+        'server': needsBootstrap
+            ? 'dns-bootstrap'
+            : (useDoh ? 'dns-doh' : 'dns-remote'),
+      };
+    }
+
     return {
       'log': {
         'level': 'debug',
@@ -254,28 +452,8 @@ class XrayRunner {
       },
       'dns': _buildDnsSection(profile, useDoh),
       'inbounds': [
-        {
-          'type': 'tun',
-          'tag': 'tun-in',
-          'address': ['172.19.0.1/30'],
-          'auto_route': true,
-          'strict_route': false,
-          'mtu': 1500,
-          'stack': 'mixed',
-          'sniff': true,
-          'sniff_override_destination': false,
-          'endpoint_independent_nat': true,
-          'domain_strategy': 'ipv4_only',
-        },
-        {
-          'type': 'mixed',
-          'tag': 'mixed-in',
-          'listen': '127.0.0.1',
-          'listen_port': 2080,
-          'sniff': true,
-          'sniff_override_destination': false,
-          'domain_strategy': 'ipv4_only',
-        }
+        tunInbound,
+        mixedInbound,
       ],
       'outbounds': [
         outbound,
@@ -288,37 +466,7 @@ class XrayRunner {
           'tag': 'bypass',
         },
       ],
-      'route': {
-        'auto_detect_interface': true,
-        'rules': [
-          {
-            'action': 'hijack-dns',
-            'port': [53],
-          },
-          {
-            'action': 'hijack-dns',
-            'protocol': ['dns'],
-          },
-          {
-            'outbound': 'direct',
-            'domain': [profile.host],
-          },
-          {
-            'action': 'reject',
-            'domain_suffix': [
-              'appcenter.ms',
-              'firebase.io',
-              'crashlytics.com',
-            ],
-          },
-          {
-            'action': 'reject',
-            'ip_cidr': ['224.0.0.0/3', 'ff00::/8'],
-            'source_ip_cidr': ['224.0.0.0/3', 'ff00::/8'],
-          },
-        ],
-        'final': 'proxy',
-      },
+      'route': routeBody,
     };
   }
 }

@@ -21,7 +21,7 @@ class VpnNotifier extends ChangeNotifier {
     VpnPlatform? platform,
     AppSettingsNotifier? appSettings,
   })  : _appSettings = appSettings,
-        _platform = platform ?? VpnPlatform() {
+        _platform = platform ?? createVpnPlatform() {
     _platform.onVpnStopped = _onNativeVpnStopped;
   }
 
@@ -72,7 +72,7 @@ class VpnNotifier extends ChangeNotifier {
   int get uploadBytes => _uploadBytes;
   int get downloadBytes => _downloadBytes;
 
-  /// VLESS via sing-box, or AmneziaWG via [GoBackend] on Android.
+  /// VLESS via sing-box, or AmneziaWG (Android [GoBackend], Linux `awg-quick`).
   Future<bool> connect(StoredVpnProfile profile) async {
     switch (profile) {
       case AmneziaWgStoredVpnProfile(:final profile):
@@ -85,9 +85,10 @@ class VpnNotifier extends ChangeNotifier {
   }
 
   Future<void> _connectAwg(AmneziaWgProfile profile) async {
-    if (defaultTargetPlatform != TargetPlatform.android) {
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.linux) {
       _status = VpnStatus.error;
-      _lastError = 'AmneziaWG is only supported on Android';
+      _lastError = 'AmneziaWG is only supported on Android and Linux';
       notifyListeners();
       return;
     }
@@ -97,15 +98,18 @@ class VpnNotifier extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final status = await Permission.notification.status;
-      if (!status.isGranted) {
-        await Permission.notification.request();
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final status = await Permission.notification.status;
+        if (!status.isGranted) {
+          await Permission.notification.request();
+        }
       }
 
       await _platform.prepareVpn();
       await _platform.startAwgVpn(
         conf: profile.conf,
         profileName: profile.name,
+        profileId: profile.id,
       );
       _status = VpnStatus.connected;
       _activeTunnel = _ActiveTunnel.awg;

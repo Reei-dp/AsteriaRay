@@ -1,83 +1,22 @@
-import 'dart:async';
-import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
-class VpnPlatform {
-  static const _channel = MethodChannel('lumaray/vpn');
-  static const _eventChannel = EventChannel('lumaray/vpn/events');
-  
-  /// Native teardown: `vpnStopped`, `vpnStopped:libcore`, `vpnStopped:awg`.
-  void Function(String event)? onVpnStopped;
-  StreamSubscription<dynamic>? _eventSubscription;
+import 'vpn_platform_android.dart';
+import 'vpn_platform_base.dart';
+import 'vpn_platform_linux.dart'
+    if (dart.library.html) 'vpn_platform_linux_stub.dart';
 
-  VpnPlatform() {
-    // Listen for events from native side
-    _eventSubscription = _eventChannel.receiveBroadcastStream().listen(
-      (event) {
-        if (event is String &&
-            (event == 'vpnStopped' ||
-                event.startsWith('vpnStopped:'))) {
-          onVpnStopped?.call(event);
-        }
-      },
-      onError: (error) {
-        // Ignore errors
-      },
-    );
+export 'vpn_platform_base.dart';
+
+/// Android: MethodChannel + libcore / AmneziaWG. Linux: sing-box (VLESS) + `awg-quick` (AmneziaWG).
+VpnPlatform createVpnPlatform() {
+  if (kIsWeb) {
+    throw UnsupportedError('VPN is not supported on web');
   }
-
-  void dispose() {
-    _eventSubscription?.cancel();
-    _eventSubscription = null;
+  if (defaultTargetPlatform == TargetPlatform.linux) {
+    return VpnPlatformLinux();
   }
-
-  Future<bool> prepareVpn() async {
-    final result = await _channel.invokeMethod<bool>('prepareVpn');
-    return result ?? false;
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    return VpnPlatformAndroid();
   }
-
-  /// Sing-box / libcore (VLESS) tunnel.
-  Future<void> startVpn({
-    required String configPath,
-    required String workDir,
-    required String logPath,
-    String? profileName,
-    String? transport,
-  }) async {
-    await _channel.invokeMethod('startVpn', {
-      'mode': 'singbox',
-      'configPath': configPath,
-      'workDir': workDir,
-      'logPath': logPath,
-      'profileName': profileName,
-      'transport': transport,
-    });
-  }
-
-  /// AmneziaWG userspace tunnel (Android [GoBackend]).
-  Future<void> startAwgVpn({
-    required String conf,
-    required String profileName,
-  }) async {
-    await _channel.invokeMethod('startVpn', {
-      'mode': 'awg',
-      'conf': conf,
-      'profileName': profileName,
-    });
-  }
-
-  Future<void> stopVpn() async {
-    await _channel.invokeMethod('stopVpn');
-  }
-
-  Future<Map<String, int>> getStats() async {
-    final result = await _channel.invokeMethod<Map<Object?, Object?>>('getStats');
-    if (result == null) {
-      return {'upload': 0, 'download': 0};
-    }
-    return {
-      'upload': (result['upload'] as num?)?.toInt() ?? 0,
-      'download': (result['download'] as num?)?.toInt() ?? 0,
-    };
-  }
+  throw UnsupportedError('VPN is only supported on Android and Linux');
 }
-

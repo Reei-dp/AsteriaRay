@@ -10,13 +10,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:lumaray/notifiers/app_settings_notifier.dart';
-import 'package:lumaray/notifiers/profile_notifier.dart';
-import 'package:lumaray/notifiers/vpn_notifier.dart';
-import 'package:lumaray/screens/home_screen.dart';
-import 'package:lumaray/services/profile_store.dart';
-import 'package:lumaray/services/xray_runner.dart';
-import 'package:lumaray/services/vpn_platform.dart';
+import 'package:asteriaray/notifiers/app_settings_notifier.dart';
+import 'package:asteriaray/notifiers/profile_notifier.dart';
+import 'package:asteriaray/notifiers/vpn_notifier.dart';
+import 'package:asteriaray/screens/home_screen.dart';
+import 'package:asteriaray/services/profile_store.dart';
+import 'package:asteriaray/services/xray_runner.dart';
+import 'package:asteriaray/services/vpn_platform.dart';
 
 class _FakeRunner extends XrayRunner {
   @override
@@ -37,6 +37,9 @@ class _FakeRunner extends XrayRunner {
 
 class _FakePlatform extends VpnPlatform {
   @override
+  void dispose() {}
+
+  @override
   Future<bool> prepareVpn() async => true;
 
   @override
@@ -49,7 +52,18 @@ class _FakePlatform extends VpnPlatform {
   }) async {}
 
   @override
+  Future<void> startAwgVpn({
+    required String conf,
+    required String profileName,
+    String? profileId,
+  }) async {}
+
+  @override
   Future<void> stopVpn() async {}
+
+  @override
+  Future<Map<String, int>> getStats() async =>
+      {'upload': 0, 'download': 0};
 }
 
 void main() {

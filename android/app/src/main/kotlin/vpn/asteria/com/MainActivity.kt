@@ -25,8 +25,8 @@ class MainActivity : FlutterActivity() {
     private val vpnHandoffExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private val channelName = "lumaray/vpn"
-    private val eventChannelName = "lumaray/vpn/events"
+    private val channelName = "asteriaray/vpn"
+    private val eventChannelName = "asteriaray/vpn/events"
     private val requestVpn = 1001
     private var pendingResult: MethodChannel.Result? = null
     private var methodChannel: MethodChannel? = null

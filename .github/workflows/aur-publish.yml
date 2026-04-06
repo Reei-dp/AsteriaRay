@@ -1,0 +1,84 @@
+# Manual AUR publish (e.g. hotfix). Normal path: tag push → Release workflow → publish-aur job (automatic).
+#
+# One-time: ssh aur@aur.archlinux.org "setup-repo asteriaray-bin" + secret AUR_SSH_PRIVATE_KEY
+
+name: Publish AUR (asteriaray-bin)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'pkgver (e.g. 1.0.6) — release asteriaray-1.0.6-linux-x64.tar.xz must exist'
+        required: true
+        type: string
+
+jobs:
+  aur:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require AUR SSH secret
+        env:
+          KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "${KEY:-}" ]; then
+            echo "Missing repository secret AUR_SSH_PRIVATE_KEY" >&2
+            exit 1
+          fi
+
+      - name: Download release tarball and checksum
+        run: |
+          set -euo pipefail
+          VER="${{ github.event.inputs.version }}"
+          TAG="v${VER}"
+          NAME="asteriaray-${VER}-linux-x64.tar.xz"
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${NAME}"
+          echo "Fetching $URL"
+          curl -fsSL -o "$NAME" "$URL"
+          sha256sum "$NAME" | awk '{print $1}' | tee sha256.txt
+
+      - name: SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+
+      - name: Clone AUR package and update PKGBUILD
+        run: |
+          set -euo pipefail
+          VER="${{ github.event.inputs.version }}"
+          SUM=$(cat sha256.txt)
+          mkdir -p ~/.ssh
+          ssh-keyscan -t rsa,ecdsa,ed25519 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+
+          git clone "ssh://aur@aur.archlinux.org/asteriaray-bin.git" aur-repo
+          cp packaging/aur/asteriaray-bin/PKGBUILD aur-repo/PKGBUILD
+          cd aur-repo
+
+          sed -i "s/^pkgver=.*/pkgver=${VER}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          sed -i "s/^sha256sums=.*/sha256sums=('${SUM}')/" PKGBUILD
+
+      - name: Generate .SRCINFO (Arch makepkg)
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/aur-repo:/pkg" \
+            -w /pkg \
+            archlinux:latest \
+            bash -lc 'pacman -Sy --noconfirm archlinux-keyring pacman >/dev/null && makepkg --printsrcinfo' \
+            > "$GITHUB_WORKSPACE/aur-repo/.SRCINFO"
+
+      - name: Commit and push to AUR
+        run: |
+          set -euo pipefail
+          cd aur-repo
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: ${{ github.event.inputs.version }}"
+          git push origin HEAD:master || git push origin HEAD:main
