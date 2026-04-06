@@ -7,6 +7,9 @@ project(runner LANGUAGES CXX)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-literal-operator>)
 endif()
+# tray_manager: ayatana-appindicator still exposes app_indicator_new as deprecated; with -Werror the
+# plugin fails to compile on Clang/GCC.
+add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-declarations>)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
@@ -98,6 +101,15 @@ set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+
+# Freedesktop: menu / search integration (Icon= matches hicolor name; PKGBUILD also installs icons).
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/vpn.asteria.com.desktop"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icon.png"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/icons"
+  RENAME "vpn.asteria.com.png"
   COMPONENT Runtime)
 
 # Optional: place `sing-box` next to the Flutter binary (see tools/fetch_singbox_linux.sh).

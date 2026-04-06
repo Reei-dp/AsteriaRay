@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'notifiers/app_settings_notifier.dart';
 import 'notifiers/profile_notifier.dart';
@@ -7,9 +8,16 @@ import 'notifiers/vpn_notifier.dart';
 import 'screens/home_screen.dart';
 import 'services/profile_store.dart';
 import 'services/xray_runner.dart';
+import 'widgets/desktop_tray_holder.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (desktopTraySupported) {
+    await windowManager.ensureInitialized();
+    // Must run before runApp so the close button cannot destroy the window while
+    // DesktopTrayHolder is still initializing tray / setPreventClose.
+    await windowManager.setPreventClose(true);
+  }
   final store = await ProfileStore.create();
   final profileNotifier = ProfileNotifier(store);
   await profileNotifier.init();
@@ -89,7 +97,9 @@ class MyApp extends StatelessWidget {
           ),
         ),
         themeMode: ThemeMode.dark,
-        home: const HomeScreen(),
+        home: desktopTraySupported
+            ? const DesktopTrayHolder(child: HomeScreen())
+            : const HomeScreen(),
       ),
     );
   }

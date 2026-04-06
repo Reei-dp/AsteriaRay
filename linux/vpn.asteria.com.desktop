@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AsteriaRay
+Comment=VPN client (VLESS / AmneziaWG)
+Exec=asteriaray %u
+Icon=vpn.asteria.com
+Categories=Network;Security;
+Terminal=false
+StartupNotify=true
+StartupWMClass=vpn.asteria.com

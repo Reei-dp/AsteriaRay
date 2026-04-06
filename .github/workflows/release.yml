@@ -78,7 +78,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libayatana-appindicator3-dev
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -235,6 +235,7 @@ jobs:
 
           git clone "ssh://aur@aur.archlinux.org/asteriaray-bin.git" aur-repo
           cp packaging/aur/asteriaray-bin/PKGBUILD aur-repo/PKGBUILD
+          cp packaging/aur/asteriaray-bin/asteriaray-bin.install aur-repo/asteriaray-bin.install
           cd aur-repo
 
           sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
@@ -262,7 +263,7 @@ jobs:
           cd aur-repo
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git add PKGBUILD .SRCINFO
+          git add PKGBUILD .SRCINFO asteriaray-bin.install
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0

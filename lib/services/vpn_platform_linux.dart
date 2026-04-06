@@ -236,6 +236,79 @@ class VpnPlatformLinux extends VpnPlatform {
     }
   }
 
+  Map<String, String> _singBoxEnvironment() {
+    final env = Map<String, String>.from(Platform.environment);
+    final p = env['PATH'];
+    env['PATH'] = (p == null || p.isEmpty)
+        ? _linuxSystemPath
+        : '$p:$_linuxSystemPath';
+    return env;
+  }
+
+  Future<void> _killProcBestEffort(Process? proc) async {
+    if (proc == null) return;
+    try {
+      proc.kill(ProcessSignal.sigterm);
+      await proc.exitCode.timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          proc.kill(ProcessSignal.sigkill);
+          return -1;
+        },
+      );
+    } catch (_) {
+      try {
+        proc.kill(ProcessSignal.sigkill);
+      } catch (_) {}
+    }
+  }
+
+  /// True if [path] already has file caps (e.g. from AUR post_install or a prior run).
+  Future<bool> _singBoxHasNetCaps(String path) async {
+    try {
+      final r = await Process.run('getcap', [path], runInShell: false);
+      final out = '${r.stdout}${r.stderr}';
+      return out.contains('cap_net_admin');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// One graphical password prompt (pkexec) to run [setcap] on the binary; afterwards sing-box
+  /// can open TUN without sudo/pkexec on every connect.
+  Future<void> _ensureSingBoxCapabilities(String singBoxPath) async {
+    if (await _isUid0()) return;
+    if (await _singBoxHasNetCaps(singBoxPath)) {
+      debugPrint('VpnPlatformLinux: sing-box already has cap_net_admin (+ bind)');
+      return;
+    }
+    debugPrint(
+      'VpnPlatformLinux: asking for password once to allow VPN (setcap on sing-box)',
+    );
+    final r = await Process.run(
+      'pkexec',
+      [
+        'setcap',
+        'cap_net_admin,cap_net_bind_service+ep',
+        singBoxPath,
+      ],
+      runInShell: false,
+    );
+    if (r.exitCode != 0) {
+      final hint = '${r.stderr}${r.stdout}'.trim();
+      throw Exception(
+        'Could not grant VPN capabilities to sing-box (pkexec exit ${r.exitCode}). '
+        '${hint.isNotEmpty ? '$hint ' : ''}'
+        'Run once in a terminal: sudo setcap cap_net_admin,cap_net_bind_service+ep $singBoxPath',
+      );
+    }
+    if (!await _singBoxHasNetCaps(singBoxPath)) {
+      debugPrint(
+        'VpnPlatformLinux: setcap finished but getcap still shows no caps (unusual)',
+      );
+    }
+  }
+
   Future<String> _readLogTail(String path, [int maxBytes = 4096]) async {
     try {
       final f = File(path);
@@ -313,41 +386,117 @@ class VpnPlatformLinux extends VpnPlatform {
     }
     debugPrint('VpnPlatformLinux: using sing-box at $singBox');
 
+    await _ensureSingBoxCapabilities(singBox);
+
     final logFile = File(logPath);
     await logFile.parent.create(recursive: true);
     final sink = logFile.openWrite(mode: FileMode.append);
     sink.writeln('--- sing-box ${DateTime.now().toIso8601String()} ---');
     await sink.flush();
 
-    final proc = await Process.start(
-      singBox,
-      ['run', '-c', configPath],
-      workingDirectory: workDir,
-      environment: Platform.environment,
-    );
-    _process = proc;
-
+    final env = _singBoxEnvironment();
+    final isRoot = await _isUid0();
+    final maxAttempts = isRoot ? 1 : 3;
     final capturedOut = StringBuffer();
-    _stderrSub = proc.stderr.listen((bytes) {
-      try {
-        final s = utf8.decode(bytes, allowMalformed: true);
-        _appendRolling(capturedOut, s);
-        sink.write(s);
-      } catch (_) {}
-    });
-    _stdoutSub = proc.stdout.listen((bytes) {
-      try {
-        final s = utf8.decode(bytes, allowMalformed: true);
-        _appendRolling(capturedOut, s);
-        sink.write(s);
-      } catch (_) {}
-    });
 
-    final earlyExit = await Future.any<int>([
-      proc.exitCode,
-      Future<int>.delayed(const Duration(milliseconds: 800), () => -999),
-    ]);
-    if (earlyExit != -999) {
+    Process? proc;
+    var startedOk = false;
+    var lastExitCode = 1;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      await _stderrSub?.cancel();
+      _stderrSub = null;
+      await _stdoutSub?.cancel();
+      _stdoutSub = null;
+      await _killProcBestEffort(proc);
+      proc = null;
+
+      if (isRoot) {
+        proc = await Process.start(
+          singBox,
+          ['run', '-c', configPath],
+          workingDirectory: workDir,
+          environment: env,
+        );
+      } else if (attempt == 1) {
+        // Works when sing-box has cap_net_admin+ep (e.g. AUR post_install setcap).
+        proc = await Process.start(
+          singBox,
+          ['run', '-c', configPath],
+          workingDirectory: workDir,
+          environment: env,
+        );
+      } else if (attempt == 2) {
+        debugPrint('VpnPlatformLinux: retrying sing-box via sudo -n (TUN needs privileges)');
+        try {
+          proc = await Process.start(
+            'sudo',
+            ['-n', '-E', singBox, 'run', '-c', configPath],
+            workingDirectory: workDir,
+            environment: env,
+          );
+        } on ProcessException catch (e) {
+          debugPrint('VpnPlatformLinux: sudo -n spawn failed: $e');
+          continue;
+        }
+      } else {
+        debugPrint('VpnPlatformLinux: retrying sing-box via pkexec');
+        try {
+          proc = await Process.start(
+            'pkexec',
+            [
+              'env',
+              'PATH=${env['PATH'] ?? ''}',
+              singBox,
+              'run',
+              '-c',
+              configPath,
+            ],
+            workingDirectory: workDir,
+            environment: env,
+          );
+        } on ProcessException catch (e) {
+          throw Exception(
+            'Could not start sing-box with privileges: $e. '
+            'Install polkit (pkexec) or use: sudo setcap cap_net_admin,cap_net_bind_service+ep \$path/sing-box',
+          );
+        }
+      }
+
+      _process = proc;
+      _stderrSub = proc.stderr.listen((bytes) {
+        try {
+          final s = utf8.decode(bytes, allowMalformed: true);
+          _appendRolling(capturedOut, s);
+          sink.write(s);
+        } catch (_) {}
+      });
+      _stdoutSub = proc.stdout.listen((bytes) {
+        try {
+          final s = utf8.decode(bytes, allowMalformed: true);
+          _appendRolling(capturedOut, s);
+          sink.write(s);
+        } catch (_) {}
+      });
+
+      final earlyExit = await Future.any<int>([
+        proc.exitCode,
+        Future<int>.delayed(const Duration(milliseconds: 800), () => -999),
+      ]);
+      if (earlyExit == -999) {
+        startedOk = true;
+        break;
+      }
+      lastExitCode = earlyExit;
+      if (attempt < maxAttempts) {
+        debugPrint(
+          'VpnPlatformLinux: sing-box attempt $attempt exited $earlyExit, trying next',
+        );
+      }
+    }
+
+    proc = _process;
+    if (proc == null || !startedOk) {
+      final earlyExit = lastExitCode;
       // Allow stream listeners to finish writing before we read the file.
       await Future<void>.delayed(const Duration(milliseconds: 120));
       await _stderrSub?.cancel();

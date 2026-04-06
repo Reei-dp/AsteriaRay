@@ -88,7 +88,7 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add pubspec.yaml packaging/aur/asteriaray-bin/PKGBUILD
+          git add pubspec.yaml packaging/aur/asteriaray-bin/PKGBUILD packaging/aur/asteriaray-bin/asteriaray-bin.install
           git commit -m "Bump version to ${{ steps.bump.outputs.new_version }}+${{ steps.bump.outputs.new_build }}"
           git push origin main
 
