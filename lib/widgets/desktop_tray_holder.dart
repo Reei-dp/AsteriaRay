@@ -14,7 +14,7 @@ bool get desktopTraySupported =>
 
 class DesktopTrayHolder extends StatefulWidget {
   const DesktopTrayHolder({super.key, required this.child});
- 
+
   final Widget child;
 
   @override
