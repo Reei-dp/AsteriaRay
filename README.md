@@ -115,9 +115,10 @@ flutter pub get
 flutter build apk
 ```
 
-**Linux**
+**Linux** — install GTK/tray build deps first (Debian/Ubuntu example):
 
 ```bash
+sudo apt install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libayatana-appindicator3-dev libdbusmenu-gtk3-dev
 flutter build linux
 ```
 
