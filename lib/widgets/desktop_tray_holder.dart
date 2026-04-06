@@ -12,6 +12,10 @@ import 'package:window_manager/window_manager.dart';
 bool get desktopTraySupported =>
     !kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS);
 
+/// Linux tray is implemented in the GTK runner (`tray_linux.cc`); Dart plugin is Win/macOS only.
+bool get _useDartTray =>
+    desktopTraySupported && !Platform.isLinux;
+
 class DesktopTrayHolder extends StatefulWidget {
   const DesktopTrayHolder({super.key, required this.child});
 
@@ -23,24 +27,32 @@ class DesktopTrayHolder extends StatefulWidget {
 
 class _DesktopTrayHolderState extends State<DesktopTrayHolder>
     with WindowListener, TrayListener {
-  /// Linux: last bounds before "close to tray" (off-screen move); avoid hide/minimize
-  /// which unmap the window and can trigger FlutterEngineRemoveView on the GTK embedder.
+  /// Linux: last bounds before "close to tray".
   Rect? _linuxSavedBounds;
 
   /// True while quitting from the tray menu — ignore [onWindowClose] so destroy can run.
   bool _quitting = false;
 
+  /// Wayland often ignores arbitrary [WindowManager.setBounds]; X11 can use off-screen hide.
+  static bool get _linuxWayland {
+    final w = Platform.environment['WAYLAND_DISPLAY'];
+    return w != null && w.isNotEmpty;
+  }
+
   @override
   void initState() {
     super.initState();
     windowManager.addListener(this);
-    trayManager.addListener(this);
+    if (_useDartTray) {
+      trayManager.addListener(this);
+    }
     // Re-assert after hot restart / isolate restarts where native flag may not match Dart.
     Future.microtask(() => windowManager.setPreventClose(true));
     _initDesktop();
   }
 
   Future<void> _initDesktop() async {
+    if (!_useDartTray) return;
     try {
       await _initTray();
     } catch (e, st) {
@@ -60,7 +72,6 @@ class _DesktopTrayHolderState extends State<DesktopTrayHolder>
             key: 'show_window',
             label: 'Показать AsteriaRay',
           ),
-          MenuItem.separator(),
           MenuItem(
             key: 'quit',
             label: 'Выход',
@@ -83,7 +94,9 @@ class _DesktopTrayHolderState extends State<DesktopTrayHolder>
   @override
   void dispose() {
     windowManager.removeListener(this);
-    trayManager.removeListener(this);
+    if (_useDartTray) {
+      trayManager.removeListener(this);
+    }
     super.dispose();
   }
 
@@ -93,25 +106,44 @@ class _DesktopTrayHolderState extends State<DesktopTrayHolder>
   @override
   void onWindowClose() async {
     if (_quitting) return;
-    // Do not gate on isPreventClose() — it can read false while GTK still prevents
-    // close, so the window would stay open with no tray action and no logs.
     assert(() {
       debugPrint('DesktopTrayHolder: close → tray');
       return true;
     }());
-    // Linux: hide() and minimize()/iconify() unmap the GTK window and can trigger
-    // FlutterEngineRemoveView ("implicit view cannot be removed"). Moving off-screen
-    // keeps the view mapped; setPreventClose is set from main() to avoid races.
     if (Platform.isLinux) {
-      _linuxSavedBounds = await windowManager.getBounds();
-      await windowManager.setSkipTaskbar(true);
-      final w = _linuxSavedBounds!.width;
-      final h = _linuxSavedBounds!.height;
-      await windowManager.setBounds(
-        Rect.fromLTWH(-10000, -10000, w, h),
-      );
+      await _linuxCloseToTray();
     } else {
       await windowManager.hide();
+    }
+  }
+
+  /// Wayland: [minimize] keeps a taskbar entry on many compositors (e.g. Plasma); use
+  /// [hide] to unmap the window so only the tray icon remains. X11: move off-screen.
+  Future<void> _linuxCloseToTray() async {
+    try {
+      _linuxSavedBounds = await windowManager.getBounds();
+      await windowManager.setSkipTaskbar(true);
+      if (_linuxWayland) {
+        await windowManager.hide();
+        return;
+      }
+      final b = _linuxSavedBounds!;
+      await windowManager.setBounds(
+        Rect.fromLTWH(-10000, -10000, b.width, b.height),
+      );
+    } catch (e, st) {
+      debugPrint('DesktopTrayHolder: Linux close fallback: $e\n$st');
+      try {
+        await windowManager.setSkipTaskbar(true);
+        await windowManager.hide();
+      } catch (e2, st2) {
+        debugPrint('DesktopTrayHolder: hide fallback failed: $e2\n$st2');
+        try {
+          await windowManager.minimize();
+        } catch (e3, st3) {
+          debugPrint('DesktopTrayHolder: minimize fallback failed: $e3\n$st3');
+        }
+      }
     }
   }
 
@@ -137,6 +169,10 @@ class _DesktopTrayHolderState extends State<DesktopTrayHolder>
   Future<void> _showWindow() async {
     if (Platform.isLinux) {
       await windowManager.setSkipTaskbar(false);
+      if (_linuxWayland) {
+        await windowManager.show();
+        await windowManager.restore();
+      }
       final b = _linuxSavedBounds;
       if (b != null) {
         await windowManager.setBounds(b);
@@ -149,7 +185,23 @@ class _DesktopTrayHolderState extends State<DesktopTrayHolder>
 
   Future<void> _quitApp() async {
     _quitting = true;
-    await trayManager.destroy();
-    await windowManager.destroy();
+    try {
+      await windowManager.setPreventClose(false);
+    } catch (e, st) {
+      debugPrint('DesktopTrayHolder: setPreventClose(false): $e\n$st');
+    }
+    if (_useDartTray) {
+      try {
+        await trayManager.destroy();
+      } catch (e, st) {
+        debugPrint('DesktopTrayHolder: tray destroy: $e\n$st');
+      }
+    }
+    try {
+      await windowManager.destroy();
+    } catch (e, st) {
+      debugPrint('DesktopTrayHolder: window destroy: $e\n$st');
+      exit(0);
+    }
   }
 }
