@@ -174,20 +174,31 @@ jobs:
   publish-aur:
     needs: [release]
     runs-on: ubuntu-latest
-    # secrets.* is not allowed in job-level `if:` — only in step `if:` (see publish-aur steps).
+    # Do not use secrets.* in step `if:` (invalid with workflow_dispatch). Gate via a prior step output.
     steps:
+      - name: Check AUR secret
+        id: aur
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -n "${AUR_SSH_PRIVATE_KEY}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Wait for release assets
-        if: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+        if: steps.aur.outputs.enabled == 'true'
         run: sleep 15
 
       - name: Checkout (PKGBUILD template)
-        if: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+        if: steps.aur.outputs.enabled == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
 
       - name: Download release tarball and checksum
-        if: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+        if: steps.aur.outputs.enabled == 'true'
         env:
           VERSION: ${{ needs.release.outputs.version }}
         run: |
@@ -207,13 +218,13 @@ jobs:
           sha256sum "$NAME" | awk '{print $1}' | tee sha256.txt
 
       - name: SSH agent
-        if: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+        if: steps.aur.outputs.enabled == 'true'
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
 
       - name: Clone AUR package and update PKGBUILD
-        if: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+        if: steps.aur.outputs.enabled == 'true'
         env:
           VERSION: ${{ needs.release.outputs.version }}
         run: |
@@ -231,7 +242,7 @@ jobs:
           sed -i "s/^sha256sums=.*/sha256sums=('${SUM}')/" PKGBUILD
 
       - name: Generate .SRCINFO (Arch makepkg)
-        if: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+        if: steps.aur.outputs.enabled == 'true'
         run: |
           docker run --rm \
             -v "$GITHUB_WORKSPACE/aur-repo:/pkg" \
@@ -241,7 +252,7 @@ jobs:
             > "$GITHUB_WORKSPACE/aur-repo/.SRCINFO"
 
       - name: Commit and push to AUR
-        if: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+        if: steps.aur.outputs.enabled == 'true'
         env:
           VERSION: ${{ needs.release.outputs.version }}
         run: |
