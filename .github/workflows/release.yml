@@ -1,9 +1,13 @@
 name: Release
 
+# Same flow as Android: version lives in pubspec on main — merge PR → Auto Version Bump commits → this runs on that push.
+# Manual: Actions → Release → Run workflow. Emergency tag-based runs: use workflow_dispatch or add a tag push trigger below.
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - main
+    paths:
+      - 'pubspec.yaml'
   workflow_dispatch:
 
 jobs:
