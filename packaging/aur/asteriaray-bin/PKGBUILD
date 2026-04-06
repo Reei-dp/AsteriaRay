@@ -2,7 +2,7 @@
 # Binary URL uses v${pkgver} GitHub Release — CI publishes to AUR after each release if AUR_SSH_PRIVATE_KEY is set.
 
 pkgname=asteriaray-bin
-pkgver=1.0.10
+pkgver=1.0.11
 pkgrel=1
 pkgdesc='VPN client (VLESS / AmneziaWG) — Flutter Linux bundle'
 arch=('x86_64')
