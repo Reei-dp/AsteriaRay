@@ -3,15 +3,16 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'  # Triggers on tags like v1.0.0, v1.2.3, etc.
-  workflow_dispatch:  # Manual trigger - uses version from pubspec.yaml
+      - 'v*.*.*'
+  workflow_dispatch:
 
 jobs:
-  release:
+  build-android:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      full_version: ${{ steps.version.outputs.full_version }}
+      build_number: ${{ steps.version.outputs.build_number }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -35,11 +36,11 @@ jobs:
         id: version
         run: |
           FULL_VERSION=$(grep "^version:" pubspec.yaml | sed 's/version: //')
-          VERSION=$(echo $FULL_VERSION | sed 's/+.*//')
-          BUILD_NUMBER=$(echo $FULL_VERSION | sed 's/.*+//')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "full_version=$FULL_VERSION" >> $GITHUB_OUTPUT
-          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          VERSION=$(echo "$FULL_VERSION" | sed 's/+.*//')
+          BUILD_NUMBER=$(echo "$FULL_VERSION" | sed 's/.*+//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "full_version=$FULL_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
           echo "Using version from pubspec.yaml: $FULL_VERSION"
 
       - name: Install dependencies
@@ -55,35 +56,198 @@ jobs:
           cp build/app/outputs/flutter-apk/app-release.apk release/app-release.apk || true
 
       - name: Build App Bundle (AAB)
+        run: flutter build appbundle --release && cp build/app/outputs/bundle/release/app-release.aab release/app-release.aab
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: release
+
+  build-linux:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Install Linux build dependencies
         run: |
-          flutter build appbundle --release
-          mkdir -p release
-          cp build/app/outputs/bundle/release/app-release.aab release/app-release.aab
+          sudo apt-get update -qq
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.3'
+          channel: 'stable'
+          cache: true
+
+      - name: Get version from pubspec.yaml
+        id: version
+        run: |
+          FULL_VERSION=$(grep "^version:" pubspec.yaml | sed 's/version: //')
+          VERSION=$(echo "$FULL_VERSION" | sed 's/+.*//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Fetch bundled native binaries (sing-box, awg, amneziawg-go)
+        run: |
+          chmod +x tools/fetch_singbox_linux.sh tools/fetch_amneziawg_tools_linux.sh tools/fetch_amneziawg_go_linux.sh
+          ./tools/fetch_singbox_linux.sh
+          ./tools/fetch_amneziawg_tools_linux.sh
+          ./tools/fetch_amneziawg_go_linux.sh
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Build Linux release
+        run: flutter build linux --release
+
+      - name: Pack tarball
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          tar -C build/linux/x64/release/bundle -cJf "asteriaray-${VERSION}-linux-x64.tar.xz" .
+          ls -lh "asteriaray-${VERSION}-linux-x64.tar.xz"
+
+      - name: Upload Linux tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-tar
+          path: asteriaray-${{ steps.version.outputs.version }}-linux-x64.tar.xz
+
+  release:
+    needs: [build-android, build-linux]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ needs.build-android.outputs.version }}
+    permissions:
+      contents: write
+    steps:
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release
+          path: artifacts/android
+
+      - name: Download Linux tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x64-tar
+          path: artifacts/linux
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: Release v${{ steps.version.outputs.version }}
+          tag_name: v${{ needs.build-android.outputs.version }}
+          name: Release v${{ needs.build-android.outputs.version }}
           body: |
-            ## AsteriaRay v${{ steps.version.outputs.version }}
-            
+            ## AsteriaRay v${{ needs.build-android.outputs.version }}
+
             ### Downloads
             - **APK (Universal)**: app-release.apk
             - **APK (ARM64)**: app-arm64-v8a-release.apk
             - **APK (ARMv7)**: app-armeabi-v7a-release.apk
             - **App Bundle (AAB)**: app-release.aab
-            
+            - **Linux x64 (tar.xz)**: asteriaray-${{ needs.build-android.outputs.version }}-linux-x64.tar.xz — extract and run `./asteriaray`; AUR: `packaging/aur/asteriaray-bin`
+
             ### Build Info
-            - Version: ${{ steps.version.outputs.full_version }}
-            - Build Number: ${{ steps.version.outputs.build_number }}
+            - Version: ${{ needs.build-android.outputs.full_version }}
+            - Build Number: ${{ needs.build-android.outputs.build_number }}
             - Commit: ${{ github.sha }}
           files: |
-            release/*.apk
-            release/*.aab
+            artifacts/android/*.apk
+            artifacts/android/*.aab
+            artifacts/linux/*.tar.xz
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Pushes to AUR when AUR_SSH_PRIVATE_KEY is set (same pkgver as pubspec / GitHub tag).
+  publish-aur:
+    needs: [release]
+    runs-on: ubuntu-latest
+    if: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+    steps:
+      - name: Wait for release assets
+        run: sleep 15
 
+      - name: Checkout (PKGBUILD template)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Download release tarball and checksum
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          NAME="asteriaray-${VERSION}-linux-x64.tar.xz"
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${NAME}"
+          echo "Fetching $URL"
+          for i in 1 2 3 4 5 6; do
+            if curl -fsSL -o "$NAME" "$URL"; then
+              break
+            fi
+            echo "retry $i..."
+            sleep 10
+          done
+          test -f "$NAME"
+          sha256sum "$NAME" | awk '{print $1}' | tee sha256.txt
+
+      - name: SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+
+      - name: Clone AUR package and update PKGBUILD
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          SUM=$(cat sha256.txt)
+          mkdir -p ~/.ssh
+          ssh-keyscan -t rsa,ecdsa,ed25519 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+
+          git clone "ssh://aur@aur.archlinux.org/asteriaray-bin.git" aur-repo
+          cp packaging/aur/asteriaray-bin/PKGBUILD aur-repo/PKGBUILD
+          cd aur-repo
+
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          sed -i "s/^sha256sums=.*/sha256sums=('${SUM}')/" PKGBUILD
+
+      - name: Generate .SRCINFO (Arch makepkg)
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/aur-repo:/pkg" \
+            -w /pkg \
+            archlinux:latest \
+            bash -lc 'pacman -Sy --noconfirm archlinux-keyring pacman >/dev/null && makepkg --printsrcinfo' \
+            > "$GITHUB_WORKSPACE/aur-repo/.SRCINFO"
+
+      - name: Commit and push to AUR
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd aur-repo
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: ${VERSION}"
+          git push origin HEAD:master || git push origin HEAD:main
