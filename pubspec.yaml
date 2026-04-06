@@ -46,7 +46,8 @@ dependencies:
   # For config building and file handling
   path: ^1.9.0
   window_manager: ^0.5.1
-  tray_manager: ^0.5.2
+  tray_manager:
+    path: packages/tray_manager
 
 dev_dependencies:
   flutter_test:

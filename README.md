@@ -1,133 +1,144 @@
 # AsteriaRay
 
-A modern Android VPN client for the VLESS protocol, built with Flutter and powered by sing-box.
+Cross-platform VPN client (Flutter) with native tunnels: **VLESS** via sing-box / libcore, and **AmneziaWG** (WireGuard-compatible `.conf`) on supported platforms.
+
+## Protocol and platform support
+
+Tunneling is implemented only where the table shows **✅**. On other platforms the app may compile for UI work, but **connect** is not available. **Legend:** ✅ supported · ❌ not supported.
+
+<table>
+<thead>
+<tr>
+<th align="left">Protocol</th>
+<th align="center">Android</th>
+<th align="center">Linux</th>
+<th align="center">Windows</th>
+<th align="center">macOS</th>
+<th align="center">iOS</th>
+<th align="center">Web</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>VLESS</strong></td>
+<td align="center">✅</td>
+<td align="center">✅</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+</tr>
+<tr>
+<td><strong>AmneziaWG</strong></td>
+<td align="center">✅</td>
+<td align="center">✅</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+</tr>
+<tr>
+<td><strong>OpenVPN</strong></td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+</tr>
+<tr>
+<td><strong>L2TP / IPsec</strong></td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+<td align="center">❌</td>
+</tr>
+</tbody>
+</table>
+
+**Notes**
+
+- **VLESS**: URI import (`vless://…`), profiles stored in-app; core is embedded **sing-box** (Linux: sidecar binary; Android: **libcore** / NekoBox stack).
+- **AmneziaWG**: import WireGuard-style `[Interface]` / `[Peer]` config; not plain stock WireGuard unless the config matches what the bundled **AmneziaWG** stack expects.
+- **OpenVPN** and **L2TP** are not implemented (`VpnProtocol` has no active variants for them; imports like OpenVPN are rejected until parsers/backends exist).
+- **Linux desktop**: system tray uses a native GTK / StatusNotifier path; see `linux/runner/tray_linux.cc`.
 
 ## Features
 
-- **VLESS Protocol Support**: Full support for VLESS with TLS, Reality, and various transport types
-- **Profile Management**: Add, edit, delete, and switch between multiple VLESS profiles
-- **Import/Export**: Import profiles from clipboard or file, export and share configurations
-- **Reality Support**: Built-in support for Reality protocol with public key and short ID
-- **Transport Types**: Support for TCP, WebSocket (WS), gRPC, and HTTP/2 transports
-- **Native Integration**: Uses embedded libcore (NekoBox/sing-box) for VPN core
-- **Connection Status**: Real-time VPN connection status and statistics
-- **Logs Viewing**: View sing-box logs directly in the app
-- **Modern UI**: Clean and intuitive Material Design interface
+- **VLESS**: TLS, Reality, TCP / WebSocket / gRPC / HTTP/2 transports; profile CRUD, clipboard and file import, logs
+- **AmneziaWG**: `.conf` profiles on Android and Linux only
+- **Profile management**: multiple profiles, switching, export/share where applicable
+- **Native integration**: Android **VpnService** + libcore; Linux **sing-box** + `awg-quick` / bundled tools (see `linux/` and `tools/`)
+- **Connection status** and statistics where the platform exposes them
+- **Modern UI**: Material Design
 
-## Architecture
+## Architecture (overview)
 
-AsteriaRay is built with Flutter for cross-platform UI and uses native Android components for VPN functionality:
+- **Flutter**: UI and orchestration (`lib/`)
+- **Android**: Kotlin + libcore JNI, `LibcoreVpnService`, MethodChannel (`android/app/src/main/kotlin/…`)
+- **Linux**: `VpnPlatformLinux` — `sing-box` for VLESS, AmneziaWG via `awg-quick` (see `lib/services/vpn_platform_linux.dart`)
+- **Platform entry**: `createVpnPlatform()` in `lib/services/vpn_platform.dart` — **Android** and **Linux** only for VPN
 
-- **Flutter**: UI layer and business logic
-- **libcore**: NekoBox libcore (sing-box) via JNI for VPN core functionality
-- **VpnService**: Android VPN service for TUN interface management
-- **Platform Channels**: Communication between Flutter and native Android code
-
-## Project Structure
+## Project structure (abridged)
 
 ```
 lib/
-├── main.dart                 # Application entry point
-├── models/                   # Data models
-│   ├── vless_profile.dart   # VLESS profile model
-│   └── vless_types.dart     # Transport types and utilities
-├── services/                 # Business logic services
-│   ├── profile_store.dart   # Profile persistence
-│   ├── vless_uri.dart       # URI parser
-│   ├── vpn_platform.dart    # VPN platform interface
-│   └── xray_runner.dart     # sing-box configuration builder
-├── notifiers/                # State management
-│   ├── profile_notifier.dart
-│   └── vpn_notifier.dart
-└── screens/                  # UI screens
-    ├── home_screen.dart
-    ├── profile_form_screen.dart
-    └── log_screen.dart
+├── main.dart
+├── models/              # VLESS, AmneziaWG, stored profiles
+├── services/            # vpn_platform*, xray_runner (sing-box JSON), profile_store, …
+├── notifiers/
+└── screens/
 
-android/
-└── app/src/main/kotlin/vpn/asteria/com/
-    ├── AsteriaApplication.kt       # Application entry, libcore init
-    ├── MainActivity.kt             # Method channel handler
-    ├── LibcoreVpnService.kt        # VPN service implementation
-    ├── LibcorePlatformInterface.kt # Platform callbacks for libcore
-    ├── DefaultNetworkMonitor.kt    # Network monitoring
-    └── LocalResolver.kt           # DNS resolver
+android/                 # Kotlin VPN service, libcore
+linux/                   # Runner, CMake, optional bundled sing-box / awg tools
 ```
 
 ## Requirements
 
-- Flutter SDK (latest stable)
-- Android SDK (API level 21+)
-- Android device with VPN support
-- libcore.aar (from NekoBoxForAndroid build)
+- **Flutter** (stable)
+- **Android**: SDK, device with VPN; **libcore** from NekoBox build (see scripts below)
+- **Linux**: `pkexec`/polkit or passwordless sudo for TUN where required; optional bundled binaries via `tools/fetch_*.sh` (CI/release)
 
 ## Building
 
-1. Clone the repository and install dependencies:
 ```bash
 flutter pub get
 ```
 
-2. Build libcore and copy it into the project (requires Go and Android NDK):
-```bash
-cd ../NekoBoxForAndroid
-./run lib core
-cd -
-./scripts/copy_libcore.sh
-```
-Or with custom NekoBox path: `./scripts/copy_libcore.sh /path/to/NekoBoxForAndroid`
+**Android** — copy libcore then build APK (see existing scripts):
 
-3. Build the APK:
 ```bash
+# Example: build libcore elsewhere, then:
+# ./scripts/copy_libcore.sh
 flutter build apk
 ```
 
-Or run in debug mode:
+**Linux**
+
 ```bash
-flutter run
+flutter build linux
 ```
+
+Bundled helpers for release bundles: `tools/fetch_singbox_linux.sh`, `tools/fetch_amneziawg_tools_linux.sh`, `tools/fetch_amneziawg_go_linux.sh` (used in CI).
 
 ## Usage
 
-1. **Add a Profile**: Tap the "+" button to add a new VLESS profile manually or import from URI
-2. **Import Profile**: Use the import button to import from clipboard or file
-3. **Connect**: Select a profile and tap "Connect" to start the VPN
-4. **View Logs**: Access logs from the home screen to troubleshoot connection issues
-5. **Export/Share**: Long-press a profile to export or share the configuration
+1. Add a profile (**+**) or import from clipboard/file (VLESS URI or AmneziaWG `.conf` where supported).
+2. Select a profile and connect.
+3. Use logs on the home screen if something fails.
 
-## VLESS URI Format
+## VLESS URI format (short)
 
-AsteriaRay supports standard VLESS URI format:
 ```
 vless://uuid@host:port?security=tls&sni=example.com&alpn=h2,http/1.1&fp=chrome&type=ws&path=/path&host=example.com#ProfileName
 ```
 
-### Parameters
+- `security`: `none` | `tls` | `reality`
+- `type`: `tcp` | `ws` | `grpc` | `h2`
+- Reality: `pbk`, `sid` (see in-app / parser)
 
-- `security`: `none`, `tls`, or `reality`
-- `sni`: Server Name Indication for TLS
-- `alpn`: Application-Layer Protocol Negotiation (comma-separated)
-- `fp`: uTLS fingerprint (e.g., `chrome`, `firefox`)
-- `type`: Transport type (`tcp`, `ws`, `grpc`, `h2`)
-- `path`: Path for WS/H2 transport
-- `host`: Host header for WS/H2 transport
-- `pbk`: Reality public key
-- `sid`: Reality short ID
+## Android permissions
 
-## Configuration
-
-The app generates sing-box configuration automatically based on the selected profile. Key features:
-
-- **TUN Interface**: Automatic TUN interface creation and routing
-- **DNS**: Configurable DNS servers with hijacking support
-- **Routing**: Automatic route detection and traffic routing
-- **Network Monitoring**: Real-time network interface monitoring
-
-## Permissions
-
-The app requires the following Android permissions:
-
-- `INTERNET`: For network connectivity
-- `ACCESS_NETWORK_STATE`: For network monitoring
-- `BIND_VPN_SERVICE`: For VPN service binding
-- `FOREGROUND_SERVICE`: For persistent VPN connection
+- `INTERNET`, `ACCESS_NETWORK_STATE`, `BIND_VPN_SERVICE`, `FOREGROUND_SERVICE`, notifications as needed for the VPN flow
