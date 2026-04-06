@@ -63,14 +63,23 @@ jobs:
 
       - name: Generate .SRCINFO (Arch makepkg)
         run: |
-          # makepkg refuses to run as root; container default user is root.
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/aur-repo/.SRCINFO"
+          # makepkg must not run as root; minimal image needs a full pacman sync + base-devel
+          # so makepkg can parse the PKGBUILD. Empty stdout → AUR hook: "does not contain pkgbase".
           docker run --rm \
             -v "$GITHUB_WORKSPACE/aur-repo:/pkg" \
             archlinux:latest \
-            bash -lc "set -euo pipefail; pacman -Sy --noconfirm archlinux-keyring pacman >/dev/null; useradd -m builduser; chown -R builduser:builduser /pkg; su builduser -s /bin/bash -c 'cd /pkg && makepkg --printsrcinfo'" \
-            > "$GITHUB_WORKSPACE/aur-repo/.SRCINFO"
-          # Docker chowned the bind-mount to builduser; restore runner ownership for git.
+            bash -lc '
+              set -euo pipefail
+              pacman -Syu --noconfirm --needed archlinux-keyring pacman base-devel
+              useradd -m -s /bin/bash builduser
+              chown -R builduser:builduser /pkg
+              runuser -u builduser -- env HOME=/home/builduser bash -lc "cd /pkg && makepkg --printsrcinfo"
+            ' > "$out"
           sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/aur-repo"
+          test -s "$out"
+          grep -qE "^pkgbase[[:space:]]*=" "$out" || { echo "::error::Invalid .SRCINFO"; head -50 "$out"; exit 1; }
 
       - name: Commit and push to AUR
         run: |
@@ -84,4 +93,4 @@ jobs:
             exit 0
           fi
           git commit -m "chore: ${{ github.event.inputs.version }}"
-          git push origin HEAD:master || git push origin HEAD:main
+          git push origin HEAD:master
