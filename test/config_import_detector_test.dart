@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lumaray/services/config_import_detector.dart';
+import 'package:asteriaray/services/config_import_detector.dart';
 
 void main() {
   group('ConfigImportDetector', () {
