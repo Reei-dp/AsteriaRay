@@ -252,7 +252,7 @@ jobs:
             archlinux:latest \
             bash -lc '
               set -euo pipefail
-              pacman -Syu --noconfirm --needed archlinux-keyring pacman base-devel
+              pacman -Syu --noconfirm --needed archlinux-keyring pacman base-devel >/dev/null 2>&1
               useradd -m -s /bin/bash builduser
               chown -R builduser:builduser /pkg
               runuser -u builduser -- env HOME=/home/builduser bash -lc "cd /pkg && makepkg --printsrcinfo"

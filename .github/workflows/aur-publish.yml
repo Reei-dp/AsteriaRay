@@ -65,14 +65,13 @@ jobs:
         run: |
           set -euo pipefail
           out="$GITHUB_WORKSPACE/aur-repo/.SRCINFO"
-          # makepkg must not run as root; minimal image needs a full pacman sync + base-devel
-          # so makepkg can parse the PKGBUILD. Empty stdout → AUR hook: "does not contain pkgbase".
+          # Only makepkg stdout must land in .SRCINFO — pacman progress was being captured too.
           docker run --rm \
             -v "$GITHUB_WORKSPACE/aur-repo:/pkg" \
             archlinux:latest \
             bash -lc '
               set -euo pipefail
-              pacman -Syu --noconfirm --needed archlinux-keyring pacman base-devel
+              pacman -Syu --noconfirm --needed archlinux-keyring pacman base-devel >/dev/null 2>&1
               useradd -m -s /bin/bash builduser
               chown -R builduser:builduser /pkg
               runuser -u builduser -- env HOME=/home/builduser bash -lc "cd /pkg && makepkg --printsrcinfo"
