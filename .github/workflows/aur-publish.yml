@@ -68,6 +68,8 @@ jobs:
             archlinux:latest \
             bash -lc "set -euo pipefail; pacman -Sy --noconfirm archlinux-keyring pacman >/dev/null; useradd -m builduser; chown -R builduser:builduser /pkg; su builduser -s /bin/bash -c 'cd /pkg && makepkg --printsrcinfo'" \
             > "$GITHUB_WORKSPACE/aur-repo/.SRCINFO"
+          # Docker chowned the bind-mount to builduser; restore runner ownership for git.
+          sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/aur-repo"
 
       - name: Commit and push to AUR
         run: |
