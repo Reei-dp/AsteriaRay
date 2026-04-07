@@ -4,6 +4,7 @@
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
+#include <unistd.h>
 
 #include "flutter/generated_plugin_registrant.h"
 #include "tray_linux.h"
@@ -15,6 +16,98 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
+static void set_window_icon_from_png(GtkWindow* window) {
+  gchar exe_path[4096] = {0};
+  const ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+  if (len <= 0) {
+    return;
+  }
+  exe_path[len] = '\0';
+
+  g_autofree gchar* exe_dir = g_path_get_dirname(exe_path);
+  g_autofree gchar* icon_in_bundle =
+      g_build_filename(exe_dir, "icons", APPLICATION_ID ".png", nullptr);
+
+  const gchar* icon_path = nullptr;
+  if (g_file_test(icon_in_bundle, G_FILE_TEST_EXISTS)) {
+    icon_path = icon_in_bundle;
+  } else {
+    g_autofree gchar* cwd = g_get_current_dir();
+    g_autofree gchar* icon_in_project =
+        g_build_filename(cwd, "assets", "dekstop_icon.png", nullptr);
+    if (g_file_test(icon_in_project, G_FILE_TEST_EXISTS)) {
+      // Fallback for local `flutter run -d linux` from source tree.
+      icon_path = icon_in_project;
+    }
+  }
+
+  if (icon_path != nullptr) {
+    g_autoptr(GError) error = nullptr;
+    gtk_window_set_default_icon_from_file(icon_path, &error);
+    if (error != nullptr) {
+      g_warning("Failed to set PNG app icon: %s", error->message);
+    }
+
+    // Explicitly set icon for this concrete window as well (taskbar/dock).
+    g_clear_error(&error);
+    gtk_window_set_icon_from_file(window, icon_path, &error);
+    if (error != nullptr) {
+      g_warning("Failed to set window PNG icon: %s", error->message);
+    }
+  }
+
+  // Some DE/taskbars prefer icon name lookup over pixbuf; keep it aligned with
+  // the application ID/desktop entry.
+  gtk_window_set_icon_name(window, APPLICATION_ID);
+}
+
+static void apply_headerbar_css() {
+  static const gchar* kHeaderbarCss = R"(
+window#asteria-window,
+window#asteria-window.background {
+  border-radius: 0 0 16px 16px;
+  background-color: #000000;
+}
+
+headerbar.titlebar {
+  background: #171c22;
+  background-image: none;
+  border: none;
+  border-bottom: 1px solid #2a313c;
+  min-height: 42px;
+  padding: 0 6px;
+}
+
+headerbar.titlebar .title {
+  color: #f2f5f8;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+headerbar.titlebar button.titlebutton {
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 8px;
+  margin: 0 2px;
+  padding: 0;
+}
+
+headerbar.titlebar button.titlebutton:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+)";
+
+  GtkCssProvider* provider = gtk_css_provider_new();
+  gtk_css_provider_load_from_data(provider, kHeaderbarCss, -1, nullptr);
+  GdkScreen* screen = gdk_screen_get_default();
+  if (screen != nullptr) {
+    gtk_style_context_add_provider_for_screen(
+        screen, GTK_STYLE_PROVIDER(provider),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  }
+  g_object_unref(provider);
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
@@ -25,6 +118,18 @@ static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+  set_window_icon_from_png(window);
+  gtk_widget_set_name(GTK_WIDGET(window), "asteria-window");
+
+  // Allow RGBA compositing so GTK-side rounded corners can be rendered cleanly.
+  GdkScreen* rgba_screen = gtk_widget_get_screen(GTK_WIDGET(window));
+  if (rgba_screen != nullptr) {
+    GdkVisual* rgba_visual = gdk_screen_get_rgba_visual(rgba_screen);
+    if (rgba_visual != nullptr) {
+      gtk_widget_set_visual(GTK_WIDGET(window), rgba_visual);
+      gtk_widget_set_app_paintable(GTK_WIDGET(window), TRUE);
+    }
+  }
 
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
@@ -44,13 +149,18 @@ static void my_application_activate(GApplication* application) {
   }
 #endif
   if (use_header_bar) {
+    apply_headerbar_css();
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "AsteriaRay");
+    gtk_style_context_add_class(gtk_widget_get_style_context(GTK_WIDGET(header_bar)),
+                                "titlebar");
+    gtk_header_bar_set_title(header_bar, "Asteria");
+    gtk_header_bar_set_subtitle(header_bar, nullptr);
+    gtk_header_bar_set_decoration_layout(header_bar, ":minimize,maximize,close");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "AsteriaRay");
+    gtk_window_set_title(window, "Asteria");
   }
 
   const gint kWindowWidth = 550;
@@ -72,8 +182,7 @@ static void my_application_activate(GApplication* application) {
 
   FlView* view = fl_view_new(project);
   GdkRGBA background_color;
-  // Background defaults to black, override it here if necessary, e.g. #00000000
-  // for transparent.
+  // Keep Flutter surface opaque; rounded corners are handled on GTK side.
   gdk_rgba_parse(&background_color, "#000000");
   fl_view_set_background_color(view, &background_color);
   gtk_widget_show(GTK_WIDGET(view));

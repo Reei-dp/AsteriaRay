@@ -396,7 +396,7 @@ void tray_linux_init(GtkWindow* window) {
   gchar* dir = g_path_get_dirname(exe);
   g_free(exe);
   gchar* icon_path = g_build_filename(dir, "data", "flutter_assets", "assets",
-                                      "icon.png", nullptr);
+                                      "dekstop_icon.png", nullptr);
   g_free(dir);
 
   if (!g_file_test(icon_path, G_FILE_TEST_EXISTS)) {

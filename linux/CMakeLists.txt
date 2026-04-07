@@ -107,9 +107,9 @@ install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/vpn.asteria.com.desktop"
   DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icon.png"
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../assets/dekstop_icon.png"
   DESTINATION "${CMAKE_INSTALL_PREFIX}/icons"
-  RENAME "vpn.asteria.com.png"
+  RENAME "${APPLICATION_ID}.png"
   COMPONENT Runtime)
 
 # Optional: place `sing-box` next to the Flutter binary (see tools/fetch_singbox_linux.sh).
