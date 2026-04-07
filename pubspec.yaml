@@ -87,6 +87,7 @@ flutter:
   assets:
     - assets/xray/
     - assets/icon.png
+    - assets/dekstop_icon.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
