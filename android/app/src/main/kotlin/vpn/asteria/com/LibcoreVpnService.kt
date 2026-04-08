@@ -13,6 +13,7 @@ import android.net.TrafficStats
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.Process
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import libcore.Libcore
@@ -53,7 +54,8 @@ class LibcoreVpnService : VpnService() {
                 putExtra(EXTRA_PROFILE_NAME, profileName)
                 putExtra(EXTRA_TRANSPORT, transport)
             }
-            Log.i(TAG, "Start service config=$configPath, profile=$profileName, transport=$transport")
+            // This line runs in the caller process (e.g. main); sing-box logs below run in `:libcorevpn`.
+            Log.i(TAG, "Request LibcoreVpnService (caller pid=${Process.myPid()}) config=$configPath transport=$transport")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -100,6 +102,7 @@ class LibcoreVpnService : VpnService() {
     private var isTrackingStats = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "onStartCommand pid=${Process.myPid()} action=${intent?.action} hasConfig=${!intent?.getStringExtra(EXTRA_CONFIG).isNullOrEmpty()}")
         if (intent?.action == ACTION_STOP_VPN) {
             Log.i(TAG, "ACTION_STOP_VPN: stopForeground + stopSelf (cleanup in onDestroy)")
             stopStatsTracking()

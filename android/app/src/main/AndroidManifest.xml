@@ -38,7 +38,11 @@
                 android:exported="false"
                 android:process=":libcorevpn"
                 android:permission="android.permission.BIND_VPN_SERVICE"
-                android:foregroundServiceType="dataSync" />
+                android:foregroundServiceType="dataSync">
+                <intent-filter>
+                    <action android:name="android.net.VpnService" />
+                </intent-filter>
+            </service>
         <!-- AmneziaWG: extends GoBackend.VpnService + foreground notification (tray) -->
         <service
             android:name=".AsteriaAwgVpnService"
