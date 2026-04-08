@@ -76,9 +76,19 @@ class MainActivity : FlutterActivity() {
             "prepareVpn" -> prepareVpn(result)
             "startVpn" -> handleStartVpn(call, result)
             "stopVpn" -> {
-                AwgVpnController.stopSync(this)
-                LibcoreVpnService.stop(this)
-                result.success(true)
+                vpnHandoffExecutor.execute {
+                    try {
+                        AwgVpnController.stopSync(this@MainActivity)
+                        LibcoreVpnService.stop(this@MainActivity)
+                        var waited = 0L
+                        while (LibcoreVpnService.isLibcoreRunning(this@MainActivity) && waited < 8000) {
+                            Thread.sleep(100)
+                            waited += 100
+                        }
+                    } finally {
+                        mainHandler.post { result.success(true) }
+                    }
+                }
             }
             "getStats" -> {
                 statsExecutor.execute {

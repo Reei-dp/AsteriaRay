@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
@@ -23,6 +24,11 @@ class LibcoreVpnService : VpnService() {
 
     companion object {
         private const val TAG = "LibcoreVpnService"
+        /**
+         * Delivered to the running [LibcoreVpnService] in `:libcorevpn` so teardown runs in that process
+         * (companion [boxInstance] is null in the main app process).
+         */
+        const val ACTION_STOP_VPN = "vpn.asteria.ACTION_STOP_LIBCORE_VPN"
         /** Sent when the :libcorevpn service tears down (Flutter listens on main process). */
         const val ACTION_LIBCORE_VPN_STOPPED = "vpn.asteria.ACTION_LIBCORE_VPN_STOPPED"
         private const val CHANNEL_ID = "asteria_vpn_channel"
@@ -60,20 +66,19 @@ class LibcoreVpnService : VpnService() {
         }
 
         fun stop(context: Context) {
-            // boxInstance lives only in :libcorevpn; main process has null here.
-            boxInstance?.close()
-            boxInstance = null
-            fileDescriptor?.close()
-            fileDescriptor = null
-            uploadBytes = 0L
-            downloadBytes = 0L
-            lastRxBytes = 0L
-            lastTxBytes = 0L
-            currentProfileName = null
-            currentTransport = null
-            context.stopService(Intent(context, LibcoreVpnService::class.java))
-            // vpnStopped is delivered via ACTION_LIBCORE_VPN_STOPPED from :libcorevpn onDestroy
-            // (companion callback is only registered in the main process).
+            val intent = Intent(context, LibcoreVpnService::class.java).apply {
+                action = ACTION_STOP_VPN
+            }
+            try {
+                context.startService(intent)
+            } catch (e: Exception) {
+                Log.w(TAG, "startService(ACTION_STOP_VPN) failed, fallback stopService", e)
+                try {
+                    context.stopService(Intent(context, LibcoreVpnService::class.java))
+                } catch (e2: Exception) {
+                    Log.w(TAG, "stopService fallback failed", e2)
+                }
+            }
         }
 
         /** Stats are written by the :libcorevpn process; main process reads from disk. */
@@ -95,8 +100,20 @@ class LibcoreVpnService : VpnService() {
     private var isTrackingStats = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "STOP_VPN") {
-            stop(this)
+        if (intent?.action == ACTION_STOP_VPN) {
+            Log.i(TAG, "ACTION_STOP_VPN: stopForeground + stopSelf (cleanup in onDestroy)")
+            stopStatsTracking()
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(Service.STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(false)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "stopForeground", e)
+            }
+            stopSelf()
             return START_NOT_STICKY
         }
 
@@ -356,7 +373,7 @@ class LibcoreVpnService : VpnService() {
 
         val openAppIntent = Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK }
         val pendingIntent = PendingIntent.getActivity(this, 0, openAppIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val stopIntent = Intent(this, LibcoreVpnService::class.java).apply { action = "STOP_VPN" }
+        val stopIntent = Intent(this, LibcoreVpnService::class.java).apply { action = ACTION_STOP_VPN }
         val stopPendingIntent = PendingIntent.getService(this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
         val profileName = currentProfileName ?: "Профиль"
