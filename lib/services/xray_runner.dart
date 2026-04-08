@@ -84,14 +84,18 @@ class XrayRunner {
 
   /// [useDoh]: public DoH over `direct`. Otherwise UDP DNS via `proxy` (tunnel to VPS).
   ///
-  /// Linux uses the sing-box 1.12+ DNS schema (typed servers, `final`, `predefined` rules).
-  /// Android libcore still expects the legacy `address` strings.
+  /// Linux + Android (libcore): sing-box 1.12+ DNS (`type`, `final`, `action` rules).
+  /// Legacy `address` strings are for older/other embeds only.
   Map<String, dynamic> _buildDnsSection(VlessProfile profile, bool useDoh) {
-    if (!kIsWeb && Platform.isLinux) {
+    if (_useModernSingBoxStack) {
       return _buildDnsSectionSingBox12(profile, useDoh);
     }
     return _buildDnsSectionLegacy(profile, useDoh);
   }
+
+  /// Same stack as Linux tun + route (resolve/sniff rules); Android libcore matches this engine.
+  bool get _useModernSingBoxStack =>
+      !kIsWeb && (Platform.isLinux || Platform.isAndroid);
 
   /// sing-box ≥1.12 — see https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats
   Map<String, dynamic> _buildDnsSectionSingBox12(
@@ -356,10 +360,7 @@ class XrayRunner {
       if (transportSettings != null) 'transport': transportSettings,
     };
 
-    // sing-box ≥1.13: sniff/domain_strategy on inbounds removed — use route rule actions.
-    // Android libcore keeps legacy inbound fields.
-    final modernSingBox = !kIsWeb && Platform.isLinux;
-
+    // sing-box ≥1.13: sniff on inbounds → route `resolve` / `sniff` actions (Linux + Android).
     final tunInbound = <String, dynamic>{
       'type': 'tun',
       'tag': 'tun-in',
@@ -370,7 +371,7 @@ class XrayRunner {
       'stack': 'mixed',
       'endpoint_independent_nat': true,
     };
-    if (!modernSingBox) {
+    if (!_useModernSingBoxStack) {
       tunInbound['sniff'] = true;
       tunInbound['sniff_override_destination'] = false;
       tunInbound['domain_strategy'] = 'ipv4_only';
@@ -382,14 +383,14 @@ class XrayRunner {
       'listen': '127.0.0.1',
       'listen_port': 2080,
     };
-    if (!modernSingBox) {
+    if (!_useModernSingBoxStack) {
       mixedInbound['sniff'] = true;
       mixedInbound['sniff_override_destination'] = false;
       mixedInbound['domain_strategy'] = 'ipv4_only';
     }
 
     final routeRules = <Map<String, dynamic>>[
-      if (modernSingBox) ...[
+      if (_useModernSingBoxStack) ...[
         {
           'inbound': 'tun-in',
           'action': 'resolve',
