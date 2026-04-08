@@ -11,13 +11,11 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.TrafficStats
 import android.net.VpnService
-import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
 import libcore.Libcore
 import libcore.BoxInstance
 import org.json.JSONObject
@@ -136,12 +134,7 @@ class LibcoreVpnService : VpnService() {
         DefaultNetworkMonitor.ensureStarted(this)
 
         val notification = buildNotification()
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
-        )
+        startForeground(NOTIFICATION_ID, notification)
 
         try {
             Log.i(TAG, "step: read config")

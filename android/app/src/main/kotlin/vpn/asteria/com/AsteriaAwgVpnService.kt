@@ -34,7 +34,7 @@ class AsteriaAwgVpnService : GoBackend.VpnService() {
             this,
             NOTIFICATION_ID,
             buildNotification(0L, 0L),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
         startStatsLoop()
     }
