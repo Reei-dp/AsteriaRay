@@ -331,7 +331,7 @@ class XrayRunner {
       'server': profile.host,
       'server_port': profile.port,
       'uuid': profile.uuid,
-      'packet_encoding': '',
+      // sing-box: omit packet_encoding for plain TCP; '' is not a valid enum value.
       if (profile.flow != null && profile.flow!.isNotEmpty) 'flow': profile.flow,
       'tls': tlsEnabled
           ? {
@@ -436,14 +436,13 @@ class XrayRunner {
       'rules': routeRules,
       'final': 'proxy',
     };
-    // sing-box ≥1.12: outbound dial must know which dns server resolves domain names (VLESS server, etc.)
-    if (modernSingBox) {
-      routeBody['default_domain_resolver'] = {
-        'server': needsBootstrap
-            ? 'dns-bootstrap'
-            : (useDoh ? 'dns-doh' : 'dns-remote'),
-      };
-    }
+    // sing-box ≥1.12 / libcore: which DNS tag resolves outbound `server` hostnames (required for
+    // domain-based VLESS; without it resolution can fail or loop). Same tags in legacy + SingBox12 DNS.
+    routeBody['default_domain_resolver'] = {
+      'server': needsBootstrap
+          ? 'dns-bootstrap'
+          : (useDoh ? 'dns-doh' : 'dns-remote'),
+    };
 
     return {
       'log': {
