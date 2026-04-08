@@ -84,18 +84,17 @@ class XrayRunner {
 
   /// [useDoh]: public DoH over `direct`. Otherwise UDP DNS via `proxy` (tunnel to VPS).
   ///
-  /// Linux + Android (libcore): sing-box 1.12+ DNS (`type`, `final`, `action` rules).
-  /// Legacy `address` strings are for older/other embeds only.
+  /// Linux desktop: sing-box 1.12+ DNS. **Android libcore** stays on legacy `address` DNS + inbound
+  /// sniff — the embedded engine on the phone does not match the Linux tun/route experiment.
   Map<String, dynamic> _buildDnsSection(VlessProfile profile, bool useDoh) {
-    if (_useModernSingBoxStack) {
+    if (!kIsWeb && Platform.isLinux) {
       return _buildDnsSectionSingBox12(profile, useDoh);
     }
     return _buildDnsSectionLegacy(profile, useDoh);
   }
 
-  /// Same stack as Linux tun + route (resolve/sniff rules); Android libcore matches this engine.
-  bool get _useModernSingBoxStack =>
-      !kIsWeb && (Platform.isLinux || Platform.isAndroid);
+  /// Linux-only: tun without inbound sniff, `resolve`/`sniff` route actions (sing-box ≥1.13).
+  bool get _linuxTunRouteStyle => !kIsWeb && Platform.isLinux;
 
   /// sing-box ≥1.12 — see https://sing-box.sagernet.org/migration/#migrate-to-new-dns-server-formats
   Map<String, dynamic> _buildDnsSectionSingBox12(
@@ -329,7 +328,9 @@ class XrayRunner {
       };
     }
 
-    final outbound = {
+    final needsBootstrap = _hostNeedsDnsBootstrap(profile.host);
+
+    final outbound = <String, dynamic>{
       'type': 'vless',
       'tag': 'proxy',
       'server': profile.host,
@@ -359,8 +360,13 @@ class XrayRunner {
             },
       if (transportSettings != null) 'transport': transportSettings,
     };
+    if (needsBootstrap) {
+      outbound['domain_resolver'] = {
+        'server': 'dns-bootstrap',
+      };
+    }
 
-    // sing-box ≥1.13: sniff on inbounds → route `resolve` / `sniff` actions (Linux + Android).
+    // sing-box ≥1.13: Linux uses route resolve/sniff; Android/iOS keep inbound sniff (libcore).
     final tunInbound = <String, dynamic>{
       'type': 'tun',
       'tag': 'tun-in',
@@ -371,7 +377,7 @@ class XrayRunner {
       'stack': 'mixed',
       'endpoint_independent_nat': true,
     };
-    if (!_useModernSingBoxStack) {
+    if (!_linuxTunRouteStyle) {
       tunInbound['sniff'] = true;
       tunInbound['sniff_override_destination'] = false;
       tunInbound['domain_strategy'] = 'ipv4_only';
@@ -383,14 +389,14 @@ class XrayRunner {
       'listen': '127.0.0.1',
       'listen_port': 2080,
     };
-    if (!_useModernSingBoxStack) {
+    if (!_linuxTunRouteStyle) {
       mixedInbound['sniff'] = true;
       mixedInbound['sniff_override_destination'] = false;
       mixedInbound['domain_strategy'] = 'ipv4_only';
     }
 
     final routeRules = <Map<String, dynamic>>[
-      if (_useModernSingBoxStack) ...[
+      if (_linuxTunRouteStyle) ...[
         {
           'inbound': 'tun-in',
           'action': 'resolve',
@@ -431,7 +437,6 @@ class XrayRunner {
       },
     ];
 
-    final needsBootstrap = _hostNeedsDnsBootstrap(profile.host);
     final routeBody = <String, dynamic>{
       'auto_detect_interface': true,
       'rules': routeRules,
