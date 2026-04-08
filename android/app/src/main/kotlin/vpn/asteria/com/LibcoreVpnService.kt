@@ -101,11 +101,42 @@ class LibcoreVpnService : VpnService() {
     private var statsTrackingThread: Thread? = null
     private var isTrackingStats = false
 
+    /**
+     * Tear down sing-box + TUN **before** [stopForeground]/[stopSelf]. If we only stopped the FGS and
+     * the process was killed (FGS timeout, crash), the VPN interface could stay up → key icon remains.
+     */
+    private fun shutdownVpnSession() {
+        stopStatsTracking()
+        try {
+            boxInstance?.close()
+        } catch (t: Throwable) {
+            Log.e(TAG, "boxInstance.close", t)
+        }
+        boxInstance = null
+        try {
+            fileDescriptor?.close()
+        } catch (_: Exception) {
+        }
+        fileDescriptor = null
+        try {
+            (application as? AsteriaApplication)?.setVpnService(null)
+        } catch (_: Exception) {
+        }
+        DefaultNetworkMonitor.ensureStopped()
+        uploadBytes = 0L
+        downloadBytes = 0L
+        lastRxBytes = 0L
+        lastTxBytes = 0L
+        currentProfileName = null
+        currentTransport = null
+        serviceInstance = null
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "onStartCommand pid=${Process.myPid()} action=${intent?.action} hasConfig=${!intent?.getStringExtra(EXTRA_CONFIG).isNullOrEmpty()}")
         if (intent?.action == ACTION_STOP_VPN) {
-            Log.i(TAG, "ACTION_STOP_VPN: stopForeground + stopSelf (cleanup in onDestroy)")
-            stopStatsTracking()
+            Log.i(TAG, "ACTION_STOP_VPN: shutdown tunnel → stopForeground → stopSelf")
+            shutdownVpnSession()
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     stopForeground(Service.STOP_FOREGROUND_REMOVE)
@@ -169,20 +200,7 @@ class LibcoreVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        (application as? AsteriaApplication)?.setVpnService(null)
-        DefaultNetworkMonitor.ensureStopped()
-        stopStatsTracking()
-        boxInstance?.close()
-        boxInstance = null
-        fileDescriptor?.close()
-        fileDescriptor = null
-        uploadBytes = 0L
-        downloadBytes = 0L
-        lastRxBytes = 0L
-        lastTxBytes = 0L
-        currentProfileName = null
-        currentTransport = null
-        serviceInstance = null
+        shutdownVpnSession()
         super.onDestroy()
         sendStoppedBroadcast()
     }
