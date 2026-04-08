@@ -81,7 +81,8 @@ class MainActivity : FlutterActivity() {
                         AwgVpnController.stopSync(this@MainActivity)
                         LibcoreVpnService.stop(this@MainActivity)
                         var waited = 0L
-                        while (LibcoreVpnService.isLibcoreRunning(this@MainActivity) && waited < 8000) {
+                        // Tun is closed before FGS stop in LibcoreVpnService; process usually exits quickly.
+                        while (LibcoreVpnService.isLibcoreRunning(this@MainActivity) && waited < 3500) {
                             Thread.sleep(100)
                             waited += 100
                         }

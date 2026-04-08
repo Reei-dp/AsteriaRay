@@ -180,13 +180,14 @@ class VpnNotifier extends ChangeNotifier {
     _statsTimer?.cancel();
     _statsTimer = null;
     _activeTunnel = _ActiveTunnel.none;
-    await _platform.stopVpn();
     _status = VpnStatus.disconnected;
     _current = null;
     _logPath = null;
     _uploadBytes = 0;
     _downloadBytes = 0;
     notifyListeners();
+    // Native Android stopVpn can block several seconds (waits for :libcorevpn); UI must not lag.
+    await _platform.stopVpn();
   }
 
   void updateStats(int upload, int download) {
