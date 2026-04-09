@@ -72,6 +72,11 @@ flutter_launcher_icons:
     theme_color: "#000000"
   adaptive_icon_background: "#000000"
   adaptive_icon_foreground: "assets/icon.png"
+  # Match Linux desktop bundle icon (linux/CMakeLists installs assets/dekstop_icon.png).
+  windows:
+    generate: true
+    image_path: "assets/dekstop_icon.png"
+    icon_size: 256
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -88,6 +93,8 @@ flutter:
     - assets/xray/
     - assets/icon.png
     - assets/dekstop_icon.png
+    # Windows shell tray: LoadImage(IMAGE_ICON) requires ICO, not PNG (see tray_manager_plugin.cpp).
+    - assets/tray_icon.ico
 
   # To add assets to your application, add an assets section, like this:
   # assets:

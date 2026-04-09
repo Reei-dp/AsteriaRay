@@ -14,12 +14,12 @@ export 'xray_runner_linux.dart';
 /// Android: [XrayRunnerAndroid] (Xray-core JSON + libv2ray). Linux: [XrayRunnerLinux] (Xray-core).
 typedef XrayRunner = XrayRunnerBase;
 
-/// VLESS: **Android** and **Linux** — Xray-core JSON.
+/// VLESS: **Android**, **Linux**, and **Windows** — Xray-core JSON (same shape).
 XrayRunnerBase createXrayRunner() {
   if (kIsWeb) {
     throw UnsupportedError('VLESS config is not used on web');
   }
-  if (Platform.isLinux) {
+  if (Platform.isLinux || Platform.isWindows) {
     return XrayRunnerLinux();
   }
   return XrayRunnerAndroid();

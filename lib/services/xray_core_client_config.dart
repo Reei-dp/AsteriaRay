@@ -10,7 +10,7 @@ const _analyticsSuffixes = [
   'crashlytics.com',
 ];
 
-/// Full Xray-core JSON for TUN + VLESS (Android VPN fd or Linux native `tun` inbound).
+/// Full Xray-core JSON for TUN + VLESS (Android VPN fd, Linux `tun`, Windows Wintun).
 Map<String, dynamic> buildXrayCoreClientConfig(
   VlessProfile profile,
   bool useDoh,
@@ -63,19 +63,8 @@ Map<String, dynamic> buildXrayCoreClientConfig(
       },
     },
     'dns': _xrayDns(profile, useDoh, needsBootstrap),
+    // TUN-only: no SOCKS on 127.0.0.1 (not needed for tunnel; on Windows :2080 can hit "Access is denied").
     'inbounds': [
-      {
-        'tag': 'socks-in',
-        'listen': '127.0.0.1',
-        'port': 2080,
-        'protocol': 'socks',
-        'settings': {
-          'auth': 'noauth',
-          'udp': true,
-          'userLevel': _userLevel,
-        },
-        'sniffing': _sniffing(),
-      },
       {
         'tag': 'tun-in',
         'port': 0,

@@ -4,6 +4,8 @@
 .dart_tool/
 .packages
 build/
+# Inno Setup local output (CI uses the same path)
+dist/
 # If you're building an application, you may want to check-in your pubspec.lock
 pubspec.lock
 

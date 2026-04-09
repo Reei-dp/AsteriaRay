@@ -81,11 +81,17 @@ class _DesktopTrayHolderState extends State<DesktopTrayHolder>
     );
   }
 
+  /// Tray plugin: macOS reads [iconPath] via [rootBundle.load]; Windows native code uses
+  /// [LoadImage] with [IMAGE_ICON] — only `.ico` works, not PNG (`tray_manager_plugin.cpp`).
   Future<String> _materializeTrayIcon() async {
+    if (Platform.isMacOS) {
+      return 'assets/dekstop_icon.png';
+    }
+    // Windows (Dart tray only; Linux uses GTK tray in the runner).
     final dir = await getApplicationSupportDirectory();
-    final f = File(p.join(dir.path, 'tray_icon.png'));
+    final f = File(p.join(dir.path, 'tray_icon.ico'));
     if (!await f.exists()) {
-      final data = await rootBundle.load('assets/icon.png');
+      final data = await rootBundle.load('assets/tray_icon.ico');
       await f.writeAsBytes(data.buffer.asUint8List());
     }
     return f.path;
