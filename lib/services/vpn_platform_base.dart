@@ -7,7 +7,7 @@ abstract class VpnPlatform {
 
   Future<bool> prepareVpn();
 
-  /// VLESS tunnel (Android and Linux: Xray-core).
+  /// VLESS tunnel (Android / Linux / Windows: Xray-core).
   Future<void> startVpn({
     required String configPath,
     required String workDir,

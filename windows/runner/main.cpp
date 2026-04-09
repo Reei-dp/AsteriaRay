@@ -25,8 +25,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
+  // Match linux/runner/my_application.cc: narrow phone-style layout (550×800 default).
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  Win32Window::Size size(550, 800);
   if (!window.Create(L"AsteriaRay", origin, size)) {
     return EXIT_FAILURE;
   }

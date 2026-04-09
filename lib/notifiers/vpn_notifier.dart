@@ -108,9 +108,11 @@ class VpnNotifier extends ChangeNotifier {
 
   Future<void> _connectAwg(AmneziaWgProfile profile) async {
     if (defaultTargetPlatform != TargetPlatform.android &&
-        defaultTargetPlatform != TargetPlatform.linux) {
+        defaultTargetPlatform != TargetPlatform.linux &&
+        defaultTargetPlatform != TargetPlatform.windows) {
       _status = VpnStatus.error;
-      _lastError = 'AmneziaWG is only supported on Android and Linux';
+      _lastError =
+          'AmneziaWG is only supported on Android, Linux, and Windows';
       notifyListeners();
       return;
     }
@@ -120,10 +122,21 @@ class VpnNotifier extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await createAmneziaWgRunner().connect(_platform, profile);
+      await createAmneziaWgRunner()
+          .connect(_platform, profile)
+          .timeout(const Duration(minutes: 3));
       _status = VpnStatus.connected;
       _activeTunnel = _ActiveTunnel.awg;
       _startStatsTimer();
+      notifyListeners();
+    } on TimeoutException catch (e) {
+      try {
+        await _platform.stopVpn();
+      } catch (_) {}
+      _activeTunnel = _ActiveTunnel.none;
+      _status = VpnStatus.error;
+      _lastError =
+          'Таймаут подключения AmneziaWG (3 мин). Часто: awg setconf ждёт UAPI, или DNS при полном туннеле. ${e.message ?? ''}';
       notifyListeners();
     } catch (e) {
       _activeTunnel = _ActiveTunnel.none;

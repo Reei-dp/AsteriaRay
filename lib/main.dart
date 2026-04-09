@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -11,6 +12,12 @@ import 'services/profile_store.dart';
 import 'services/xray_runner.dart';
 import 'widgets/desktop_tray_holder.dart';
 
+/// Same as [linux/runner/my_application.cc] (`kWindowWidth`, default height, geometry hints).
+const double kDesktopNarrowWidth = 550;
+const double kDesktopDefaultHeight = 800;
+const double kDesktopMinHeight = 480;
+const double kDesktopMaxHeight = 10000;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await linuxBootstrapSudoersIfNeeded();
@@ -19,6 +26,19 @@ Future<void> main() async {
     // Must run before runApp so the close button cannot destroy the window while
     // DesktopTrayHolder is still initializing tray / setPreventClose.
     await windowManager.setPreventClose(true);
+    // Windows: match Linux GTK geometry — fixed width, vertical resize only.
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      await windowManager.setMinimumSize(
+        const Size(kDesktopNarrowWidth, kDesktopMinHeight),
+      );
+      await windowManager.setMaximumSize(
+        const Size(kDesktopNarrowWidth, kDesktopMaxHeight),
+      );
+      await windowManager.setSize(
+        const Size(kDesktopNarrowWidth, kDesktopDefaultHeight),
+      );
+      await windowManager.center();
+    }
   }
   final store = await ProfileStore.create();
   final profileNotifier = ProfileNotifier(store);

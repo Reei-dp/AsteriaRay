@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'awg_conf_utils.dart';
 import 'vpn_linux_full_tunnel_routes.dart';
 import 'vpn_platform_base.dart';
 
@@ -126,39 +127,6 @@ class VpnPlatformLinux extends VpnPlatform {
       args.add('WG_QUICK_USERSPACE_IMPLEMENTATION=$w');
     }
     return args;
-  }
-
-  /// Linux netdevice names max 15 bytes (IFNAMSIZ-1); `awg-quick` rejects longer `.conf` basenames.
-  static String _linuxAwgInterfaceBaseName(String profileName, String? profileId) {
-    var safe = profileName
-        .trim()
-        .replaceAll(RegExp(r'[^a-zA-Z0-9_.-]'), '_')
-        .replaceAll(RegExp(r'^_+|_+$'), '');
-    if (safe.isEmpty) safe = 'awg';
-    if (safe.length <= 15) return safe;
-    if (profileId != null && profileId.isNotEmpty) {
-      final hex = profileId.replaceAll(RegExp(r'[^a-fA-F0-9]'), '');
-      if (hex.length >= 14) {
-        return 'w${hex.substring(0, 14)}'.toLowerCase();
-      }
-    }
-    final h = profileName.hashCode.abs().toRadixString(36).replaceAll('-', 'z');
-    final t = h.length > 14 ? h.substring(0, 14) : h.padLeft(14, '0');
-    return 'a$t';
-  }
-
-  /// `awg-quick` runs `resolvconf` for `[Interface] DNS = …`; many desktops (e.g. Arch) have no `resolvconf`
-  /// unless `openresolv` is installed — that yields exit 127 after the tunnel is already up.
-  /// Stripping `DNS=` lines skips that path; DNS can still be handled in-app or via systemd-resolved.
-  static String _stripWgQuickDnsLines(String conf) {
-    final out = <String>[];
-    for (final line in conf.split('\n')) {
-      if (RegExp(r'^\s*DNS\s*=').hasMatch(line)) {
-        continue;
-      }
-      out.add(line);
-    }
-    return out.join('\n');
   }
 
   Future<bool> _isUid0() async {
@@ -706,9 +674,9 @@ class VpnPlatformLinux extends VpnPlatform {
     final base = await getApplicationSupportDirectory();
     final dir = Directory(p.join(base.path, 'awg'));
     await dir.create(recursive: true);
-    final name = _linuxAwgInterfaceBaseName(profileName, profileId);
+    final name = awgInterfaceBaseName(profileName, profileId);
     final confPath = p.join(dir.path, '$name.conf');
-    final confToWrite = _stripWgQuickDnsLines(conf);
+    final confToWrite = stripWgQuickDnsLines(conf);
     if (confToWrite != conf) {
       debugPrint(
         'VpnPlatformLinux: removed DNS= lines from AWG conf (no system resolvconf required)',

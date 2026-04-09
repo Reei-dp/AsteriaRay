@@ -88,10 +88,13 @@ if(PLUGIN_BUNDLED_LIBRARIES)
 endif()
 
 # Copy the native assets provided by the build.dart from all packages.
+# If the directory is missing (no native assets), skip — otherwise install() fails (MSB3073).
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
-install(DIRECTORY "${NATIVE_ASSETS_DIR}"
-   DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
-   COMPONENT Runtime)
+if(EXISTS "${NATIVE_ASSETS_DIR}")
+  install(DIRECTORY "${NATIVE_ASSETS_DIR}"
+     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+     COMPONENT Runtime)
+endif()
 
 # Fully re-copy the assets directory on each build to avoid having stale files
 # from a previous install.
@@ -101,6 +104,58 @@ install(CODE "
   " COMPONENT Runtime)
 install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
   DESTINATION "${INSTALL_BUNDLE_DATA_DIR}" COMPONENT Runtime)
+
+# Optional: Xray-core + Wintun for Windows VLESS (see tools/fetch_xray_windows.ps1).
+# Use copy_if_different so INSTALL does not touch the destination when bytes match — avoids
+# "Permission denied" when asteriaray.exe / sidecars are still running (Windows locks open PE files).
+set(WINDOWS_XRAY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/xray")
+if(EXISTS "${WINDOWS_XRAY_DIR}/xray.exe")
+  install(CODE "
+    execute_process(COMMAND \"${CMAKE_COMMAND}\" -E copy_if_different
+      \"${WINDOWS_XRAY_DIR}/xray.exe\"
+      \"${CMAKE_INSTALL_PREFIX}/xray.exe\"
+      RESULT_VARIABLE _cr)
+    if(NOT _cr EQUAL 0)
+      message(WARNING \"INSTALL: could not update xray.exe (exit \${_cr}). Close apps locking the output folder or copy from windows/xray/ manually.\")
+    endif()
+  " COMPONENT Runtime)
+endif()
+if(EXISTS "${WINDOWS_XRAY_DIR}/wintun.dll")
+  install(CODE "
+    execute_process(COMMAND \"${CMAKE_COMMAND}\" -E copy_if_different
+      \"${WINDOWS_XRAY_DIR}/wintun.dll\"
+      \"${CMAKE_INSTALL_PREFIX}/wintun.dll\"
+      RESULT_VARIABLE _cr)
+    if(NOT _cr EQUAL 0)
+      message(WARNING \"INSTALL: could not update wintun.dll (exit \${_cr}). Close apps locking the output folder.\")
+    endif()
+  " COMPONENT Runtime)
+endif()
+
+# Optional: AmneziaWG (amneziawg-go + awg.exe); wintun.dll can be shared with Xray (see tools/fetch_amneziawg_windows.bat).
+set(WINDOWS_AMNEZIAWG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/amneziawg")
+if(EXISTS "${WINDOWS_AMNEZIAWG_DIR}/amneziawg-go.exe")
+  install(CODE "
+    execute_process(COMMAND \"${CMAKE_COMMAND}\" -E copy_if_different
+      \"${WINDOWS_AMNEZIAWG_DIR}/amneziawg-go.exe\"
+      \"${CMAKE_INSTALL_PREFIX}/amneziawg-go.exe\"
+      RESULT_VARIABLE _cr)
+    if(NOT _cr EQUAL 0)
+      message(WARNING \"INSTALL: could not update amneziawg-go.exe (exit \${_cr}). Close AsteriaRay/amneziawg-go or copy from windows/amneziawg/ manually.\")
+    endif()
+  " COMPONENT Runtime)
+endif()
+if(EXISTS "${WINDOWS_AMNEZIAWG_DIR}/awg.exe")
+  install(CODE "
+    execute_process(COMMAND \"${CMAKE_COMMAND}\" -E copy_if_different
+      \"${WINDOWS_AMNEZIAWG_DIR}/awg.exe\"
+      \"${CMAKE_INSTALL_PREFIX}/awg.exe\"
+      RESULT_VARIABLE _cr)
+    if(NOT _cr EQUAL 0)
+      message(WARNING \"INSTALL: could not update awg.exe (exit \${_cr}). Close apps locking the output folder.\")
+    endif()
+  " COMPONENT Runtime)
+endif()
 
 # Install the AOT library on non-Debug builds only.
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
