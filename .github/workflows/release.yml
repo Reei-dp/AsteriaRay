@@ -23,6 +23,30 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
+      # libv2ray.aar is gitignored; CI must build it (gomobile) before Gradle merges native libs.
+      - name: Setup Android SDK (NDK for gomobile)
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-34
+            build-tools;34.0.0
+            ndk;26.1.10909125
+          log-accepted-android-sdk-licenses: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build libv2ray.aar
+        run: |
+          set -euxo pipefail
+          chmod +x scripts/build_libxray_aar.sh
+          export ANDROID_HOME="${ANDROID_SDK_ROOT}"
+          ./scripts/build_libxray_aar.sh
+          test -f android/app/libs/libv2ray.aar
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -42,7 +66,10 @@ jobs:
           echo "Using version from pubspec.yaml: $FULL_VERSION"
 
       - name: Install dependencies
-        run: flutter pub get
+        run: |
+          echo "sdk.dir=${ANDROID_SDK_ROOT}" > android/local.properties
+          flutter config --android-sdk "${ANDROID_SDK_ROOT}"
+          flutter pub get
 
       - name: Build APK
         run: |
