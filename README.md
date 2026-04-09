@@ -98,7 +98,7 @@ linux/                   # Runner, CMake, optional bundled xray / awg tools
 ## Requirements
 
 - **Flutter** (stable)
-- **Android**: SDK, device with VPN; `android/app/libs/libv2ray.aar` (see `scripts/build_libxray_aar.sh` or releases of AndroidLibXrayLite)
+- **Android**: SDK, device with VPN; **libv2ray.aar** is vendored under `android/app/libs/` (rebuild with `scripts/build_libxray_aar.sh` when bumping Xray/libv2ray)
 - **Linux**: `pkexec`/polkit or passwordless sudo for TUN where required; optional bundled binaries via `tools/fetch_*.sh` (CI/release)
 
 ## Building
@@ -107,7 +107,7 @@ linux/                   # Runner, CMake, optional bundled xray / awg tools
 flutter pub get
 ```
 
-**Android** — положите `libv2ray.aar` в `android/app/libs/`, затем:
+**Android** — `libv2ray.aar` is committed under `android/app/libs/`; to rebuild it, run `scripts/build_libxray_aar.sh`, then:
 
 ```bash
 flutter build apk
