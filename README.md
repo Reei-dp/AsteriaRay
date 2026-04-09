@@ -107,7 +107,7 @@ linux/                   # Runner, CMake, optional bundled xray / awg tools
 flutter pub get
 ```
 
-**Android** — `libv2ray.aar` уже в `android/app/libs/`; для пересборки см. `scripts/build_libxray_aar.sh`, затем:
+**Android** — `libv2ray.aar` is committed under `android/app/libs/`; to rebuild it, run `scripts/build_libxray_aar.sh`, then:
 
 ```bash
 flutter build apk
