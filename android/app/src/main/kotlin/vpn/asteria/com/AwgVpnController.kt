@@ -42,7 +42,7 @@ object AwgVpnController {
 
     /**
      * True after AmneziaWG was brought up in this process. Used for VLESS handoff: [stopSync] can be a
-     * no-op (Dart already disconnected) while wg-go is still unwinding — need extra cooldown vs Libcore.
+     * no-op (Dart already disconnected) while wg-go is still unwinding — need extra cooldown vs Xray VLESS.
      */
     @Volatile
     var awgWasUsedThisProcess: Boolean = false

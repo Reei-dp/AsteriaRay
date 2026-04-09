@@ -97,10 +97,10 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Fetch bundled native binaries (sing-box, awg, amneziawg-go)
+      - name: Fetch bundled native binaries (xray, awg, amneziawg-go)
         run: |
-          chmod +x tools/fetch_singbox_linux.sh tools/fetch_amneziawg_tools_linux.sh tools/fetch_amneziawg_go_linux.sh
-          ./tools/fetch_singbox_linux.sh
+          chmod +x tools/fetch_xray_linux.sh tools/fetch_amneziawg_tools_linux.sh tools/fetch_amneziawg_go_linux.sh
+          ./tools/fetch_xray_linux.sh
           ./tools/fetch_amneziawg_tools_linux.sh
           ./tools/fetch_amneziawg_go_linux.sh
 

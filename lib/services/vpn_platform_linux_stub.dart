@@ -17,6 +17,7 @@ class VpnPlatformLinux extends VpnPlatform {
     required String logPath,
     String? profileName,
     String? transport,
+    String? vlessServerHost,
   }) async {
     throw UnsupportedError('Linux VPN requires a native build');
   }
@@ -32,6 +33,19 @@ class VpnPlatformLinux extends VpnPlatform {
 
   @override
   Future<void> stopVpn() async {}
+
+  @override
+  Future<bool> isTunnelProcessRunning() async {
+    throw UnsupportedError('Linux VPN requires a native build');
+  }
+
+  @override
+  Future<bool> isVpnTunnelEstablished() async {
+    throw UnsupportedError('Linux VPN requires a native build');
+  }
+
+  @override
+  Future<String?> getLastVlessStartError() async => null;
 
   @override
   Future<Map<String, int>> getStats() async =>

@@ -7,7 +7,7 @@ import 'vpn_platform_linux.dart'
 
 export 'vpn_platform_base.dart';
 
-/// Android: MethodChannel + libcore / AmneziaWG. Linux: sing-box (VLESS) + `awg-quick` (AmneziaWG).
+/// Android: MethodChannel + Xray / AmneziaWG. Linux: Xray (VLESS) + `awg-quick` (AmneziaWG).
 VpnPlatform createVpnPlatform() {
   if (kIsWeb) {
     throw UnsupportedError('VPN is not supported on web');

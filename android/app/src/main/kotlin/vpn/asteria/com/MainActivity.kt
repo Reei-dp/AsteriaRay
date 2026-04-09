@@ -32,9 +32,9 @@ class MainActivity : FlutterActivity() {
     private var methodChannel: MethodChannel? = null
     private var eventSink: EventChannel.EventSink? = null
 
-    private val libcoreStoppedReceiver = object : BroadcastReceiver() {
+    private val xrayVpnStoppedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            eventSink?.success(EVENT_VPN_STOPPED_LIBCORE)
+            eventSink?.success(EVENT_VPN_STOPPED_VLESS)
         }
     }
 
@@ -56,8 +56,8 @@ class MainActivity : FlutterActivity() {
 
         ContextCompat.registerReceiver(
             this,
-            libcoreStoppedReceiver,
-            IntentFilter(LibcoreVpnService.ACTION_LIBCORE_VPN_STOPPED),
+            xrayVpnStoppedReceiver,
+            IntentFilter(LibxrayVpnService.ACTION_XRAY_VPN_STOPPED),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         AwgVpnController.setOnStoppedCallback {
@@ -67,7 +67,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         /** EventChannel payloads — Dart filters stale teardown vs active tunnel. */
-        const val EVENT_VPN_STOPPED_LIBCORE = "vpnStopped:libcore"
+        const val EVENT_VPN_STOPPED_VLESS = "vpnStopped:vless"
         const val EVENT_VPN_STOPPED_AWG = "vpnStopped:awg"
     }
 
@@ -79,10 +79,9 @@ class MainActivity : FlutterActivity() {
                 vpnHandoffExecutor.execute {
                     try {
                         AwgVpnController.stopSync(this@MainActivity)
-                        LibcoreVpnService.stop(this@MainActivity)
+                        LibxrayVpnService.stop(this@MainActivity)
                         var waited = 0L
-                        // Tun is closed before FGS stop in LibcoreVpnService; process usually exits quickly.
-                        while (LibcoreVpnService.isLibcoreRunning(this@MainActivity) && waited < 3500) {
+                        while (LibxrayVpnService.isXrayTunnelRunning(this@MainActivity) && waited < 3500) {
                             Thread.sleep(100)
                             waited += 100
                         }
@@ -97,7 +96,7 @@ class MainActivity : FlutterActivity() {
                         if (AwgVpnController.isActive()) {
                             AwgVpnController.getStatsUploadDownload()
                         } else {
-                            LibcoreVpnService.getStats(this@MainActivity)
+                            LibxrayVpnService.getStats(this@MainActivity)
                         }
                     } catch (e: Exception) {
                         Log.w("MainActivity", "getStats failed", e)
@@ -112,6 +111,15 @@ class MainActivity : FlutterActivity() {
                         )
                     }
                 }
+            }
+            "isTunnelProcessRunning" -> {
+                result.success(LibxrayVpnService.isXrayTunnelRunning(this@MainActivity))
+            }
+            "isVpnTunnelEstablished" -> {
+                result.success(VlessTunnelProcess.isVpnTunEstablished(this@MainActivity))
+            }
+            "getLastVlessStartError" -> {
+                result.success(VlessTunnelProcess.getLastStartError(this@MainActivity))
             }
             else -> result.notImplemented()
         }
@@ -128,11 +136,11 @@ class MainActivity : FlutterActivity() {
             }
             vpnHandoffExecutor.execute {
                 try {
-                    val hadLibcore = LibcoreVpnService.isLibcoreRunning(this@MainActivity)
-                    LibcoreVpnService.stop(this@MainActivity)
-                    if (hadLibcore) {
+                    val hadVless = LibxrayVpnService.isXrayTunnelRunning(this@MainActivity)
+                    LibxrayVpnService.stop(this@MainActivity)
+                    if (hadVless) {
                         var waited = 0L
-                        while (LibcoreVpnService.isLibcoreRunning(this@MainActivity) && waited < 5000) {
+                        while (LibxrayVpnService.isXrayTunnelRunning(this@MainActivity) && waited < 5000) {
                             Thread.sleep(100)
                             waited += 100
                         }
@@ -188,12 +196,9 @@ class MainActivity : FlutterActivity() {
                 } finally {
                     if (needAwgTeardownWait) AsteriaAwgVpnService.clearDestroyLatch()
                 }
-                // VLESS→AWG: Libcore onDestroy is waited. AWG→VLESS: stopSync is often a no-op while wg-go
+                // VLESS→AWG: Xray VPN service onDestroy is waited. AWG→VLESS: stopSync is often a no-op while wg-go
                 // still unwinds — long cooldown when awgWasUsedThisProcess (see AwgVpnController).
-                // awgUsedBefore: stopSync may be no-op after Flutter disconnect(); extra ms for wg-go + VPN slot.
-                // If logs show AWG fully down before this line, "Lost connection" right after Libcore is usually ADB, not a crash.
-                // After AWG, wg-go must fully quiesce; starting Libcore from the main looper has crashed
-                // libwg-go (SIGSEGV on main) — keep startForegroundService off the UI thread here.
+                // After AWG, wg-go must fully quiesce — keep startForegroundService off the UI thread here.
                 val cooldownMs = when {
                     needAwgTeardownWait -> 1800L
                     awgUsedBefore -> 3500L
@@ -202,9 +207,9 @@ class MainActivity : FlutterActivity() {
                 sleepAfterVpnHandoff(cooldownMs)
                 Log.i(
                     "MainActivity",
-                    "VLESS handoff: after ${cooldownMs}ms cooldown → Libcore start on handoff thread (hadTunnel=$hadAwgTunnel awgAlive=$awgServiceAlive needWait=$needAwgTeardownWait awgUsedBefore=$awgUsedBefore)",
+                    "VLESS handoff: after ${cooldownMs}ms cooldown → Xray start on handoff thread (hadTunnel=$hadAwgTunnel awgAlive=$awgServiceAlive needWait=$needAwgTeardownWait awgUsedBefore=$awgUsedBefore)",
                 )
-                LibcoreVpnService.start(this@MainActivity, configPath, profileName, transport)
+                LibxrayVpnService.start(this@MainActivity, configPath, profileName, transport)
                 mainHandler.post { result.success(true) }
             } catch (e: Exception) {
                 Log.e("MainActivity", "VLESS handoff failed", e)
@@ -217,7 +222,7 @@ class MainActivity : FlutterActivity() {
 
     /**
      * Android releases the VPN slot asynchronously after [VpnService.stopSelf]. Starting another
-     * VpnService (Libcore vs AmneziaWG) immediately can crash or fail establish(); a short pause avoids that.
+     * VpnService (Xray vs AmneziaWG) immediately can crash or fail establish(); a short pause avoids that.
      */
     private fun sleepAfterVpnHandoff(ms: Long) {
         try {
@@ -250,7 +255,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         try {
-            unregisterReceiver(libcoreStoppedReceiver)
+            unregisterReceiver(xrayVpnStoppedReceiver)
         } catch (_: Exception) {
         }
         super.onDestroy()

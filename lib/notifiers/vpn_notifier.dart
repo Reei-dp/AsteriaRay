@@ -7,6 +7,7 @@ import '../models/stored_vpn_profile.dart';
 import '../models/vless_profile.dart';
 import '../models/vless_types.dart';
 import 'app_settings_notifier.dart';
+import '../services/amnezia_wg_runner.dart';
 import '../services/vpn_platform.dart';
 import '../services/xray_runner.dart';
 
@@ -25,7 +26,7 @@ class VpnNotifier extends ChangeNotifier {
     _platform.onVpnStopped = _onNativeVpnStopped;
   }
 
-  /// Libcore vs AmneziaWG teardown is async; a late `vpnStopped:libcore` after AWG is up must not clear UI.
+  /// VLESS vs AmneziaWG teardown is async; a late `vpnStopped:vless` after AWG is up must not clear UI.
   void _onNativeVpnStopped(String event) {
     if (_status == VpnStatus.connecting) {
       return;
@@ -33,7 +34,7 @@ class VpnNotifier extends ChangeNotifier {
     if (_status != VpnStatus.connected) {
       return;
     }
-    if (event == 'vpnStopped:libcore') {
+    if (event == 'vpnStopped:vless') {
       if (_activeTunnel != _ActiveTunnel.vless) {
         return;
       }
@@ -53,7 +54,7 @@ class VpnNotifier extends ChangeNotifier {
     notifyListeners();
   }
 
-  final XrayRunner _runner;
+  final XrayRunnerBase _runner;
   final AppSettingsNotifier? _appSettings;
   final VpnPlatform _platform;
   VpnStatus _status = VpnStatus.disconnected;
@@ -64,23 +65,44 @@ class VpnNotifier extends ChangeNotifier {
   int _downloadBytes = 0;
   Timer? _statsTimer;
 
+  /// Prevents overlapping [connect] (double-tap / duplicate startVpn).
+  bool _connectInFlight = false;
+
   VpnStatus get status => _status;
   VlessProfile? get current => _current;
   String? get lastError => _lastError;
+
+  /// Укороченное сообщение для тостов; полный текст остаётся в [lastError].
+  String? get lastErrorBrief => _briefVpnError(_lastError);
+
+  String? _briefVpnError(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    var line = raw.split('\n').first.trim();
+    line = line.replaceFirst(RegExp(r'^Bad state: '), '');
+    line = line.replaceFirst(RegExp(r'^StateError: '), '');
+    if (line.length > 160) line = '${line.substring(0, 157)}...';
+    return line;
+  }
   String? _logPath;
   String? get logPath => _logPath;
   int get uploadBytes => _uploadBytes;
   int get downloadBytes => _downloadBytes;
 
-  /// VLESS via sing-box, or AmneziaWG (Android [GoBackend], Linux `awg-quick`).
+  /// VLESS via Xray-core, or AmneziaWG (Android [GoBackend], Linux `awg-quick`).
   Future<bool> connect(StoredVpnProfile profile) async {
-    switch (profile) {
-      case AmneziaWgStoredVpnProfile(:final profile):
-        await _connectAwg(profile);
-        return _status == VpnStatus.connected;
-      case VlessStoredVpnProfile(:final profile):
-        await _connectVless(profile);
-        return _status == VpnStatus.connected;
+    if (_connectInFlight) return false;
+    _connectInFlight = true;
+    try {
+      switch (profile) {
+        case AmneziaWgStoredVpnProfile(:final profile):
+          await _connectAwg(profile);
+          return _status == VpnStatus.connected;
+        case VlessStoredVpnProfile(:final profile):
+          await _connectVless(profile);
+          return _status == VpnStatus.connected;
+      }
+    } finally {
+      _connectInFlight = false;
     }
   }
 
@@ -98,19 +120,7 @@ class VpnNotifier extends ChangeNotifier {
     notifyListeners();
 
     try {
-      if (defaultTargetPlatform == TargetPlatform.android) {
-        final status = await Permission.notification.status;
-        if (!status.isGranted) {
-          await Permission.notification.request();
-        }
-      }
-
-      await _platform.prepareVpn();
-      await _platform.startAwgVpn(
-        conf: profile.conf,
-        profileName: profile.name,
-        profileId: profile.id,
-      );
+      await createAmneziaWgRunner().connect(_platform, profile);
       _status = VpnStatus.connected;
       _activeTunnel = _ActiveTunnel.awg;
       _startStatsTimer();
@@ -149,7 +159,11 @@ class VpnNotifier extends ChangeNotifier {
         logPath: prepared.logPath,
         profileName: profile.name,
         transport: transportToString(profile.transport),
+        vlessServerHost: profile.host,
       );
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        await _waitAndroidXrayTunnelStable();
+      }
       _status = VpnStatus.connected;
       _activeTunnel = _ActiveTunnel.vless;
       _startStatsTimer();
@@ -157,9 +171,57 @@ class VpnNotifier extends ChangeNotifier {
     } catch (e) {
       _activeTunnel = _ActiveTunnel.none;
       _status = VpnStatus.error;
-      _lastError = e.toString();
+      _lastError = await _formatVlessError(e);
       notifyListeners();
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        try {
+          await _platform.stopVpn();
+        } catch (_) {}
+      }
     }
+  }
+
+  Future<String> _formatVlessError(Object e) async {
+    var s = e.toString();
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        final native = await _platform.getLastVlessStartError();
+        if (native != null && native.isNotEmpty) {
+          s = '$s\n\nXray: $native';
+        }
+      } catch (_) {}
+    }
+    return s;
+  }
+
+  /// [startVpn] returns before TUN exists; [VpnService.establish] runs later in [LibxrayVpnService].
+  Future<void> _waitAndroidXrayTunnelStable() async {
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    var consecutive = 0;
+    for (var i = 0; i < 70; i++) {
+      final tun = await _platform.isVpnTunnelEstablished();
+      if (tun) {
+        consecutive++;
+        if (consecutive >= 3) return;
+      } else {
+        consecutive = 0;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
+    final native = await _platform.getLastVlessStartError();
+    final buf = StringBuffer(
+      'Интерфейс VPN не создан (нет ключа в статус-баре).',
+    );
+    if (native != null && native.isNotEmpty) {
+      buf.write('\n\nXray: ');
+      buf.write(native);
+    } else {
+      buf.write(
+        ' В logcat: процесс :xrayvpn, тег LibxrayVpnService — «Failed to establish VPN», '
+        '«VPN permission not granted» или ошибка старта Xray.',
+      );
+    }
+    throw StateError(buf.toString());
   }
 
   void _startStatsTimer() {
@@ -186,7 +248,7 @@ class VpnNotifier extends ChangeNotifier {
     _uploadBytes = 0;
     _downloadBytes = 0;
     notifyListeners();
-    // Native Android stopVpn can block several seconds (waits for :libcorevpn); UI must not lag.
+    // Native Android stopVpn can block several seconds (waits for :xrayvpn); UI must not lag.
     await _platform.stopVpn();
   }
 

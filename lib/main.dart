@@ -6,12 +6,14 @@ import 'notifiers/app_settings_notifier.dart';
 import 'notifiers/profile_notifier.dart';
 import 'notifiers/vpn_notifier.dart';
 import 'screens/home_screen.dart';
+import 'services/linux_sudoers_bootstrap.dart';
 import 'services/profile_store.dart';
 import 'services/xray_runner.dart';
 import 'widgets/desktop_tray_holder.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await linuxBootstrapSudoersIfNeeded();
   if (desktopTraySupported) {
     await windowManager.ensureInitialized();
     // Must run before runApp so the close button cannot destroy the window while
@@ -22,7 +24,7 @@ Future<void> main() async {
   final profileNotifier = ProfileNotifier(store);
   await profileNotifier.init();
   final appSettings = await AppSettingsNotifier.create();
-  final xrayRunner = XrayRunner();
+  final xrayRunner = createXrayRunner();
   await xrayRunner.prepare();
 
   runApp(MyApp(
@@ -42,7 +44,7 @@ class MyApp extends StatelessWidget {
 
   final ProfileNotifier profileNotifier;
   final AppSettingsNotifier appSettings;
-  final XrayRunner xrayRunner;
+  final XrayRunnerBase xrayRunner;
 
   @override
   Widget build(BuildContext context) {

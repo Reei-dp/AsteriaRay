@@ -19,9 +19,15 @@ class ParsedVlessUri {
   final String? flow;
   final String? realityPublicKey;
   final String? realityShortId;
+  /// REALITY `spiderX` (share links use query key `spx`).
+  final String? realitySpiderX;
   final VlessTransport? transport;
   final String? path;
   final String? hostHeader;
+  /// XHTTP / splithttp: `stream-up`, `packet-up`, `stream-one`, `auto`, …
+  final String? xhttpMode;
+  /// XHTTP nested options (merged into [xhttpSettings.extra] in Xray JSON).
+  final Map<String, dynamic>? xhttpExtra;
   final String? remark;
 
   ParsedVlessUri({
@@ -38,9 +44,12 @@ class ParsedVlessUri {
     this.flow,
     this.realityPublicKey,
     this.realityShortId,
+    this.realitySpiderX,
     this.transport,
     this.path,
     this.hostHeader,
+    this.xhttpMode,
+    this.xhttpExtra,
     this.remark,
   });
 }
@@ -125,10 +134,53 @@ ParsedVlessUri parseVlessUri(String raw) {
     flow: params['flow'],
     realityPublicKey: params['pbk'] ?? params['publicKey'],
     realityShortId: params['sid'] ?? params['shortId'],
+    realitySpiderX: params['spx'],
     transport: transport,
     path: params['path'] ?? params['serviceName'],
     hostHeader: params['host'],
+    xhttpMode: params['mode'],
+    xhttpExtra: parseXhttpExtraParam(params['extra']),
     remark: decodedFragment,
   );
+}
+
+/// Decodes Xray [xhttpSettings.extra] from share links: URL-encoded JSON, raw JSON, or base64(JSON).
+Map<String, dynamic>? parseXhttpExtraParam(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return null;
+  final t = raw.trim();
+
+  Map<String, dynamic>? tryJson(String s) {
+    try {
+      final j = jsonDecode(s);
+      if (j is Map) return Map<String, dynamic>.from(j);
+    } catch (_) {}
+    return null;
+  }
+
+  for (final s in [t, Uri.decodeQueryComponent(t)]) {
+    final m = tryJson(s);
+    if (m != null) return m;
+  }
+
+  List<int>? decodeB64(String s) {
+    try {
+      final pad = (4 - s.length % 4) % 4;
+      final padded = pad == 0 ? s : s + ('=' * pad);
+      return base64Decode(padded);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  for (final variant in [t, t.replaceAll('-', '+').replaceAll('_', '/')]) {
+    final bytes = decodeB64(variant);
+    if (bytes == null) continue;
+    try {
+      final j = jsonDecode(utf8.decode(bytes));
+      if (j is Map) return Map<String, dynamic>.from(j);
+    } catch (_) {}
+  }
+
+  return null;
 }
 

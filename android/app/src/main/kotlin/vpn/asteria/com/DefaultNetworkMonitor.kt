@@ -73,7 +73,7 @@ object DefaultNetworkMonitor {
     }
     
     private fun checkDefaultInterfaceUpdate(network: Network?) {
-        // Kept for compatibility; libcore does not use interface listener
+        // Kept for compatibility; Xray path does not use this hook.
     }
 
     fun networkHandle(): Long {

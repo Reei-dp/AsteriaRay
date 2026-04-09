@@ -34,9 +34,9 @@
             </intent-filter>
         </activity>
             <service
-                android:name=".LibcoreVpnService"
+                android:name=".LibxrayVpnService"
                 android:exported="false"
-                android:process=":libcorevpn"
+                android:process=":xrayvpn"
                 android:permission="android.permission.BIND_VPN_SERVICE"
                 android:foregroundServiceType="dataSync">
                 <intent-filter>
