@@ -359,12 +359,13 @@ class HomeScreen extends StatelessWidget {
     final ok = await vpnNotifier.connect(activeProfile);
     if (!context.mounted) return;
     if (!ok) {
-      final err = vpnNotifier.lastError;
+      final err = vpnNotifier.lastErrorBrief ?? vpnNotifier.lastError;
       AcrylicToast.show(
         context,
         err != null && err.isNotEmpty ? err : 'Не удалось подключиться',
         icon: Icons.error_outline_rounded,
         isError: true,
+        duration: const Duration(seconds: 6),
       );
     }
   }

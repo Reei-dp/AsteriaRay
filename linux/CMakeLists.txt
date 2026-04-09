@@ -112,9 +112,14 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../assets/dekstop_icon.png"
   RENAME "${APPLICATION_ID}.png"
   COMPONENT Runtime)
 
-# Optional: place `sing-box` next to the Flutter binary (see tools/fetch_singbox_linux.sh).
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sing-box")
-  install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/sing-box"
+# Route helper for full-tunnel (see linux/sudoers.d/asteriaray-vpn.example).
+install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/asteriaray-vpn-routes.sh"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+
+# Optional: Xray-core for Linux VLESS (see tools/fetch_xray_linux.sh).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/xray")
+  install(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/xray"
     DESTINATION "${CMAKE_INSTALL_PREFIX}"
     COMPONENT Runtime)
 endif()

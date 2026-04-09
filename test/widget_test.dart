@@ -14,17 +14,18 @@ import 'package:asteriaray/notifiers/app_settings_notifier.dart';
 import 'package:asteriaray/notifiers/profile_notifier.dart';
 import 'package:asteriaray/notifiers/vpn_notifier.dart';
 import 'package:asteriaray/screens/home_screen.dart';
+import 'package:asteriaray/models/vless_profile.dart';
 import 'package:asteriaray/services/profile_store.dart';
 import 'package:asteriaray/services/xray_runner.dart';
 import 'package:asteriaray/services/vpn_platform.dart';
 
-class _FakeRunner extends XrayRunner {
+class _FakeRunner extends XrayRunnerBase {
   @override
   Future<void> prepare() async {}
 
   @override
   Future<XrayConfigContext> prepareConfig(
-    profile, {
+    VlessProfile profile, {
     bool useDoh = false,
   }) async {
     return XrayConfigContext(
@@ -33,6 +34,9 @@ class _FakeRunner extends XrayRunner {
       logPath: '/tmp/log.txt',
     );
   }
+
+  @override
+  Map<String, dynamic> buildConfig(VlessProfile profile, bool useDoh) => {};
 }
 
 class _FakePlatform extends VpnPlatform {
@@ -49,6 +53,7 @@ class _FakePlatform extends VpnPlatform {
     required String logPath,
     String? profileName,
     String? transport,
+    String? vlessServerHost,
   }) async {}
 
   @override
@@ -60,6 +65,15 @@ class _FakePlatform extends VpnPlatform {
 
   @override
   Future<void> stopVpn() async {}
+
+  @override
+  Future<bool> isTunnelProcessRunning() async => true;
+
+  @override
+  Future<bool> isVpnTunnelEstablished() async => true;
+
+  @override
+  Future<String?> getLastVlessStartError() async => null;
 
   @override
   Future<Map<String, int>> getStats() async =>

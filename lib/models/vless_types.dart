@@ -1,4 +1,4 @@
-enum VlessTransport { tcp, ws, grpc, h2 }
+enum VlessTransport { tcp, ws, grpc, h2, xhttp }
 
 String transportToString(VlessTransport transport) {
   switch (transport) {
@@ -10,6 +10,8 @@ String transportToString(VlessTransport transport) {
       return 'grpc';
     case VlessTransport.h2:
       return 'h2';
+    case VlessTransport.xhttp:
+      return 'xhttp';
   }
 }
 
@@ -21,6 +23,8 @@ VlessTransport transportFromString(String? raw) {
       return VlessTransport.grpc;
     case 'h2':
       return VlessTransport.h2;
+    case 'xhttp':
+      return VlessTransport.xhttp;
     case 'tcp':
     default:
       return VlessTransport.tcp;

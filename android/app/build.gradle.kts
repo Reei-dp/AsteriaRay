@@ -44,8 +44,8 @@ flutter {
 }
 
 dependencies {
-    // libbox will be added from libs/ directory
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+    // libv2ray (Xray gomobile). Only one gomobile AAR — each bundles go.Seq.
+    implementation(files("libs/libv2ray.aar"))
     // Required for NotificationCompat
     implementation("androidx.core:core-ktx:1.12.0")
     implementation(project(":tunnel"))

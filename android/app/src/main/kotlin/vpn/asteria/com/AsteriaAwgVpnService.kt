@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -16,7 +17,7 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 /**
- * AmneziaWG [GoBackend] VPN service with a persistent tray notification (same idea as [LibcoreVpnService]).
+ * AmneziaWG [GoBackend] VPN service with a persistent tray notification (same idea as [LibxrayVpnService]).
  *
  * Stats polling must not call [AwgVpnController.getStatsUploadDownload] (JNI → awgGetConfig) on the main thread;
  * that races with the Go stack and can SIGSEGV during/after handshake.
@@ -33,7 +34,7 @@ class AsteriaAwgVpnService : GoBackend.VpnService() {
             this,
             NOTIFICATION_ID,
             buildNotification(0L, 0L),
-            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
         startStatsLoop()
     }
@@ -51,7 +52,7 @@ class AsteriaAwgVpnService : GoBackend.VpnService() {
         statsFuture = null
         statsExecutor.shutdownNow()
         super.onDestroy()
-        // After GoBackend tears down the tun + stopSelf(), the VPN slot is fully free for LibcoreVpnService.
+        // After GoBackend tears down the tun + stopSelf(), the VPN slot is fully free for LibxrayVpnService.
         isInstanceAlive = false
         pendingDestroyLatch?.countDown()
         pendingDestroyLatch = null

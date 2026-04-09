@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Download AmneziaWG userspace tools (Ubuntu 22.04 / glibc amd64) into linux/ so CMake bundles them next to the app.
-# Same layout as sing-box: linux/awg + linux/awg-quick (awg-quick prepends its dir to PATH so awg is found).
+# Same layout as bundled xray: linux/awg + linux/awg-quick (awg-quick prepends its dir to PATH so awg is found).
 # Usage from repo root: ./tools/fetch_amneziawg_tools_linux.sh [release tag]
 # Example: ./tools/fetch_amneziawg_tools_linux.sh v1.0.20260223
 #

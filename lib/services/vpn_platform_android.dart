@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'vpn_platform_base.dart';
 
-/// Android: MethodChannel to Kotlin + libcore / AmneziaWG.
+/// Android: MethodChannel to Kotlin (Xray VLESS + AmneziaWG).
 class VpnPlatformAndroid extends VpnPlatform {
   static const _channel = MethodChannel('asteriaray/vpn');
   static const _eventChannel = EventChannel('asteriaray/vpn/events');
@@ -41,6 +41,7 @@ class VpnPlatformAndroid extends VpnPlatform {
     required String logPath,
     String? profileName,
     String? transport,
+    String? vlessServerHost,
   }) async {
     await _channel.invokeMethod('startVpn', {
       'mode': 'singbox',
@@ -68,6 +69,24 @@ class VpnPlatformAndroid extends VpnPlatform {
   @override
   Future<void> stopVpn() async {
     await _channel.invokeMethod('stopVpn');
+  }
+
+  @override
+  Future<bool> isTunnelProcessRunning() async {
+    final r = await _channel.invokeMethod<bool>('isTunnelProcessRunning');
+    return r ?? false;
+  }
+
+  @override
+  Future<bool> isVpnTunnelEstablished() async {
+    final r = await _channel.invokeMethod<bool>('isVpnTunnelEstablished');
+    return r ?? false;
+  }
+
+  @override
+  Future<String?> getLastVlessStartError() async {
+    final r = await _channel.invokeMethod<String>('getLastVlessStartError');
+    return r;
   }
 
   @override

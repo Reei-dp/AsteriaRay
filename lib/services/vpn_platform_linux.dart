@@ -8,12 +8,13 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'vpn_linux_full_tunnel_routes.dart';
 import 'vpn_platform_base.dart';
 
-/// Linux: [sing-box](https://github.com/SagerNet/sing-box) for VLESS; AmneziaWG via `awg-quick`
+/// Linux: **Xray-core** for VLESS (same JSON as Android); AmneziaWG via `awg-quick`
 /// from [amneziawg-tools](https://github.com/amnezia-vpn/amneziawg-tools) (not stock `wg-quick`).
 ///
-/// **sing-box** lookup: `SING_BOX`, bundle `sing-box`, `which sing-box`.
+/// **xray** lookup: `XRAY`, bundle `xray` next to the app, `which xray`.
 ///
 /// **awg-quick** lookup: `AWG_QUICK`, bundle `awg-quick` next to the app (with bundled `awg` in the same folder), `which awg-quick`.
 ///
@@ -22,6 +23,9 @@ import 'vpn_platform_base.dart';
 ///
 /// If the `amneziawg` kernel module is missing, `awg-quick` falls back to userspace when
 /// `WG_QUICK_USERSPACE_IMPLEMENTATION` points to bundled `amneziawg-go` (see `tools/fetch_amneziawg_go_linux.sh`).
+///
+/// VLESS: Xray’s Linux TUN does not set system routes — we run `ip -4 route` (split defaults + server /32) so
+/// traffic actually enters `xray0` (see Xray `proxy/tun/README.md`).
 class VpnPlatformLinux extends VpnPlatform {
   Process? _process;
   StreamSubscription<List<int>>? _stderrSub;
@@ -30,8 +34,17 @@ class VpnPlatformLinux extends VpnPlatform {
   /// Config path passed to `awg-quick down` when stopping AmneziaWG (kernel iface).
   String? _awgConfPath;
 
+  final VpnLinuxFullTunnelRoutes _linuxFullTunnelRoutes = VpnLinuxFullTunnelRoutes();
+
   @override
   void dispose() {
+    unawaited(
+      _linuxFullTunnelRoutes.remove(
+        runElevatedArgv: _runElevatedArgvForRoutes,
+        runElevatedSh: _runElevatedShellForRoutes,
+        debugLog: debugPrint,
+      ),
+    );
     _stderrSub?.cancel();
     _stderrSub = null;
     _stdoutSub?.cancel();
@@ -39,21 +52,21 @@ class VpnPlatformLinux extends VpnPlatform {
     _process = null;
   }
 
-  Future<String?> _resolveSingBox() async {
-    final fromEnv = Platform.environment['SING_BOX'];
+  Future<String?> _resolveXray() async {
+    final fromEnv = Platform.environment['XRAY'];
     if (fromEnv != null && fromEnv.isNotEmpty) {
       final f = File(fromEnv);
       if (await f.exists()) return fromEnv;
     }
 
     final exe = File(Platform.resolvedExecutable);
-    final bundleSingBox = File(p.join(exe.parent.path, 'sing-box'));
-    if (await bundleSingBox.exists()) {
-      return bundleSingBox.path;
+    final bundleXray = File(p.join(exe.parent.path, 'xray'));
+    if (await bundleXray.exists()) {
+      return bundleXray.path;
     }
 
     try {
-      final r = await Process.run('which', ['sing-box'], runInShell: false);
+      final r = await Process.run('which', ['xray'], runInShell: false);
       if (r.exitCode == 0) {
         final line = (r.stdout as String).trim().split('\n').first.trim();
         if (line.isNotEmpty) return line;
@@ -207,7 +220,7 @@ class VpnPlatformLinux extends VpnPlatform {
       );
     } on ProcessException catch (e) {
       throw Exception(
-        'AmneziaWG needs root for TUN (same as sing-box). awg/awg-quick are already bundled next to the app; '
+        'AmneziaWG needs root for TUN (same as Xray VLESS). awg/awg-quick are already bundled next to the app; '
         'nothing extra to install. Configure passwordless sudo for awg-quick or install pkexec (polkit). '
         'Underlying error: $e',
       );
@@ -236,13 +249,86 @@ class VpnPlatformLinux extends VpnPlatform {
     }
   }
 
-  Map<String, String> _singBoxEnvironment() {
+  /// Optional [xrayAssetDir] sets `xray.location.asset` (geoip/geosite) for Xray-core.
+  Map<String, String> _sidecarEnvironment({String? xrayAssetDir}) {
     final env = Map<String, String>.from(Platform.environment);
     final p = env['PATH'];
     env['PATH'] = (p == null || p.isEmpty)
         ? _linuxSystemPath
         : '$p:$_linuxSystemPath';
+    if (xrayAssetDir != null) {
+      env['xray.location.asset'] = xrayAssetDir;
+    }
     return env;
+  }
+
+  /// [asteriaray-vpn-routes.sh] — prefer `sudo -n` (after NOPASSWD in sudoers) so pkexec is not repeated.
+  Future<int> _runElevatedArgvForRoutes(List<String> argv) async {
+    if (argv.isEmpty) return 0;
+    final env = _sidecarEnvironment();
+    final prog = argv.first;
+    final rest = argv.sublist(1);
+    if (await _isUid0()) {
+      final r = await Process.run(prog, rest, environment: env, runInShell: false);
+      return r.exitCode;
+    }
+    try {
+      final r = await Process.run(
+        'sudo',
+        ['-n', prog, ...rest],
+        environment: env,
+        runInShell: false,
+      );
+      if (r.exitCode == 0) return 0;
+    } on ProcessException catch (e) {
+      debugPrint('VpnPlatformLinux: sudo -n route helper failed: $e');
+    }
+    try {
+      final r = await Process.run(
+        'pkexec',
+        [prog, ...rest],
+        environment: env,
+        runInShell: false,
+      );
+      return r.exitCode;
+    } on ProcessException catch (e) {
+      debugPrint('VpnPlatformLinux: pkexec route helper failed: $e');
+      return -1;
+    }
+  }
+
+  /// Fallback when the bundle script is missing: inline `sh -c` (no NOPASSWD path).
+  Future<int> _runElevatedShellForRoutes(String script) async {
+    final env = _sidecarEnvironment();
+    final trimmed = script.trim();
+    if (trimmed.isEmpty) return 0;
+    if (await _isUid0()) {
+      final r = await Process.run('/bin/sh', ['-c', trimmed], environment: env);
+      return r.exitCode;
+    }
+    try {
+      final r = await Process.run(
+        'sudo',
+        ['-n', '/bin/sh', '-c', trimmed],
+        environment: env,
+        runInShell: false,
+      );
+      if (r.exitCode == 0) return 0;
+    } on ProcessException catch (e) {
+      debugPrint('VpnPlatformLinux: sudo -n ip route failed: $e');
+    }
+    try {
+      final r = await Process.run(
+        'pkexec',
+        ['/bin/sh', '-c', trimmed],
+        environment: env,
+        runInShell: false,
+      );
+      return r.exitCode;
+    } on ProcessException catch (e) {
+      debugPrint('VpnPlatformLinux: pkexec ip route failed: $e');
+      return -1;
+    }
   }
 
   Future<void> _killProcBestEffort(Process? proc) async {
@@ -274,35 +360,35 @@ class VpnPlatformLinux extends VpnPlatform {
     }
   }
 
-  /// One graphical password prompt (pkexec) to run [setcap] on the binary; afterwards sing-box
+  /// One graphical password prompt (pkexec) to run [setcap] on the binary; afterwards the sidecar
   /// can open TUN without sudo/pkexec on every connect.
-  Future<void> _ensureSingBoxCapabilities(String singBoxPath) async {
+  Future<void> _ensureTunBinaryCapabilities(String binaryPath, String label) async {
     if (await _isUid0()) return;
-    if (await _singBoxHasNetCaps(singBoxPath)) {
-      debugPrint('VpnPlatformLinux: sing-box already has cap_net_admin (+ bind)');
+    if (await _singBoxHasNetCaps(binaryPath)) {
+      debugPrint('VpnPlatformLinux: $label already has cap_net_admin (+ bind)');
       return;
     }
     debugPrint(
-      'VpnPlatformLinux: asking for password once to allow VPN (setcap on sing-box)',
+      'VpnPlatformLinux: asking for password once to allow VPN (setcap on $label)',
     );
     final r = await Process.run(
       'pkexec',
       [
         'setcap',
         'cap_net_admin,cap_net_bind_service+ep',
-        singBoxPath,
+        binaryPath,
       ],
       runInShell: false,
     );
     if (r.exitCode != 0) {
       final hint = '${r.stderr}${r.stdout}'.trim();
       throw Exception(
-        'Could not grant VPN capabilities to sing-box (pkexec exit ${r.exitCode}). '
+        'Could not grant VPN capabilities to $label (pkexec exit ${r.exitCode}). '
         '${hint.isNotEmpty ? '$hint ' : ''}'
-        'Run once in a terminal: sudo setcap cap_net_admin,cap_net_bind_service+ep $singBoxPath',
+        'Run once in a terminal: sudo setcap cap_net_admin,cap_net_bind_service+ep $binaryPath',
       );
     }
-    if (!await _singBoxHasNetCaps(singBoxPath)) {
+    if (!await _singBoxHasNetCaps(binaryPath)) {
       debugPrint(
         'VpnPlatformLinux: setcap finished but getcap still shows no caps (unusual)',
       );
@@ -328,7 +414,7 @@ class VpnPlatformLinux extends VpnPlatform {
     }
   }
 
-  Future<void> _stopSingBoxProcess() async {
+  Future<void> _stopXraySidecarProcess() async {
     final proc = _process;
     if (proc == null) return;
     try {
@@ -367,6 +453,16 @@ class VpnPlatformLinux extends VpnPlatform {
     }
   }
 
+  /// [pkexec] only receives a minimal `env` prefix; include `xray.location.asset` when present.
+  List<String> _pkexecEnvPrefixForSidecar(Map<String, String> env) {
+    final args = <String>['env', 'PATH=${env['PATH'] ?? ''}'];
+    final asset = env['xray.location.asset'];
+    if (asset != null && asset.isNotEmpty) {
+      args.add('xray.location.asset=$asset');
+    }
+    return args;
+  }
+
   @override
   Future<void> startVpn({
     required String configPath,
@@ -374,27 +470,30 @@ class VpnPlatformLinux extends VpnPlatform {
     required String logPath,
     String? profileName,
     String? transport,
+    String? vlessServerHost,
   }) async {
     await stopVpn();
 
-    final singBox = await _resolveSingBox();
-    if (singBox == null) {
+    const sidecarLabel = 'xray';
+    final x = await _resolveXray();
+    if (x == null) {
       throw StateError(
-        'sing-box binary not found. Place it next to the app, set SING_BOX=/path/to/sing-box, '
-        'or install on PATH. See tools/fetch_singbox_linux.sh',
+        'xray binary not found. Place linux/xray next to the app, set XRAY=/path/to/xray, '
+        'or install on PATH. See tools/fetch_xray_linux.sh',
       );
     }
-    debugPrint('VpnPlatformLinux: using sing-box at $singBox');
+    final binary = x;
+    final env = _sidecarEnvironment(xrayAssetDir: workDir);
+    debugPrint('VpnPlatformLinux: using xray at $binary');
 
-    await _ensureSingBoxCapabilities(singBox);
+    await _ensureTunBinaryCapabilities(binary, sidecarLabel);
 
     final logFile = File(logPath);
     await logFile.parent.create(recursive: true);
     final sink = logFile.openWrite(mode: FileMode.append);
-    sink.writeln('--- sing-box ${DateTime.now().toIso8601String()} ---');
+    sink.writeln('--- $sidecarLabel ${DateTime.now().toIso8601String()} ---');
     await sink.flush();
 
-    final env = _singBoxEnvironment();
     final isRoot = await _isUid0();
     final maxAttempts = isRoot ? 1 : 3;
     final capturedOut = StringBuffer();
@@ -412,25 +511,26 @@ class VpnPlatformLinux extends VpnPlatform {
 
       if (isRoot) {
         proc = await Process.start(
-          singBox,
+          binary,
           ['run', '-c', configPath],
           workingDirectory: workDir,
           environment: env,
         );
       } else if (attempt == 1) {
-        // Works when sing-box has cap_net_admin+ep (e.g. AUR post_install setcap).
         proc = await Process.start(
-          singBox,
+          binary,
           ['run', '-c', configPath],
           workingDirectory: workDir,
           environment: env,
         );
       } else if (attempt == 2) {
-        debugPrint('VpnPlatformLinux: retrying sing-box via sudo -n (TUN needs privileges)');
+        debugPrint(
+          'VpnPlatformLinux: retrying $sidecarLabel via sudo -n (TUN needs privileges)',
+        );
         try {
           proc = await Process.start(
             'sudo',
-            ['-n', '-E', singBox, 'run', '-c', configPath],
+            ['-n', '-E', binary, 'run', '-c', configPath],
             workingDirectory: workDir,
             environment: env,
           );
@@ -439,14 +539,13 @@ class VpnPlatformLinux extends VpnPlatform {
           continue;
         }
       } else {
-        debugPrint('VpnPlatformLinux: retrying sing-box via pkexec');
+        debugPrint('VpnPlatformLinux: retrying $sidecarLabel via pkexec');
         try {
           proc = await Process.start(
             'pkexec',
             [
-              'env',
-              'PATH=${env['PATH'] ?? ''}',
-              singBox,
+              ..._pkexecEnvPrefixForSidecar(env),
+              binary,
               'run',
               '-c',
               configPath,
@@ -456,8 +555,8 @@ class VpnPlatformLinux extends VpnPlatform {
           );
         } on ProcessException catch (e) {
           throw Exception(
-            'Could not start sing-box with privileges: $e. '
-            'Install polkit (pkexec) or use: sudo setcap cap_net_admin,cap_net_bind_service+ep \$path/sing-box',
+            'Could not start $sidecarLabel with privileges: $e. '
+            'Install polkit (pkexec) or use: sudo setcap cap_net_admin,cap_net_bind_service+ep \$path/$sidecarLabel',
           );
         }
       }
@@ -489,7 +588,7 @@ class VpnPlatformLinux extends VpnPlatform {
       lastExitCode = earlyExit;
       if (attempt < maxAttempts) {
         debugPrint(
-          'VpnPlatformLinux: sing-box attempt $attempt exited $earlyExit, trying next',
+          'VpnPlatformLinux: $sidecarLabel attempt $attempt exited $earlyExit, trying next',
         );
       }
     }
@@ -497,7 +596,6 @@ class VpnPlatformLinux extends VpnPlatform {
     proc = _process;
     if (proc == null || !startedOk) {
       final earlyExit = lastExitCode;
-      // Allow stream listeners to finish writing before we read the file.
       await Future<void>.delayed(const Duration(milliseconds: 120));
       await _stderrSub?.cancel();
       _stderrSub = null;
@@ -516,10 +614,12 @@ class VpnPlatformLinux extends VpnPlatform {
 
       final fileBlock = StringBuffer()
         ..writeln()
-        ..writeln('========== AsteriaRay: sing-box failed (exit $earlyExit) ==========')
+        ..writeln(
+          '========== AsteriaRay: $sidecarLabel failed (exit $earlyExit) ==========',
+        )
         ..writeln('Log file (copy from here): $logPath')
-        ..writeln('Binary: $singBox')
-        ..writeln('--- sing-box output ---')
+        ..writeln('Binary: $binary')
+        ..writeln('--- $sidecarLabel output ---')
         ..writeln(detail)
         ..writeln('========== end ==========');
       try {
@@ -527,21 +627,43 @@ class VpnPlatformLinux extends VpnPlatform {
       } catch (_) {}
 
       developer.log(
-        'sing-box exit $earlyExit | $logPath\n$detail',
+        '$sidecarLabel exit $earlyExit | $logPath\n$detail',
         name: 'VpnPlatformLinux',
         level: 1000,
       );
       debugPrint(
-        'VpnPlatformLinux: sing-box failed (exit $earlyExit). Full text is in log file:',
+        'VpnPlatformLinux: $sidecarLabel failed (exit $earlyExit). Full text is in log file:',
       );
       debugPrint(logPath);
       _debugPrintLong(detail);
 
-      // Use Exception so UI does not prefix with "Bad state:".
       throw Exception(
-        'sing-box exited with code $earlyExit. Full details were appended to:\n$logPath\n'
+        '$sidecarLabel exited with code $earlyExit. Full details were appended to:\n$logPath\n'
         '(Also printed to the terminal if you started the app with flutter run.)',
       );
+    }
+
+    if (vlessServerHost != null && vlessServerHost.isNotEmpty) {
+      try {
+        await _linuxFullTunnelRoutes.apply(
+          vlessServerHost: vlessServerHost,
+          runElevatedArgv: _runElevatedArgvForRoutes,
+          runElevatedSh: _runElevatedShellForRoutes,
+          debugLog: debugPrint,
+        );
+      } catch (e) {
+        await _stderrSub?.cancel();
+        _stderrSub = null;
+        await _stdoutSub?.cancel();
+        _stdoutSub = null;
+        await _killProcBestEffort(_process);
+        _process = null;
+        try {
+          await sink.flush();
+          await sink.close();
+        } catch (_) {}
+        rethrow;
+      }
     }
 
     proc.exitCode.then((code) {
@@ -554,7 +676,14 @@ class VpnPlatformLinux extends VpnPlatform {
         sink.writeln('--- exit $code ---');
         sink.close();
       } catch (_) {}
-      onVpnStopped?.call('vpnStopped:libcore');
+      unawaited(
+        _linuxFullTunnelRoutes.remove(
+          runElevatedArgv: _runElevatedArgvForRoutes,
+          runElevatedSh: _runElevatedShellForRoutes,
+          debugLog: debugPrint,
+        ),
+      );
+      onVpnStopped?.call('vpnStopped:vless');
     });
   }
 
@@ -611,13 +740,27 @@ class VpnPlatformLinux extends VpnPlatform {
 
   @override
   Future<void> stopVpn() async {
-    await _stopSingBoxProcess();
+    await _linuxFullTunnelRoutes.remove(
+      runElevatedArgv: _runElevatedArgvForRoutes,
+      runElevatedSh: _runElevatedShellForRoutes,
+      debugLog: debugPrint,
+    );
+    await _stopXraySidecarProcess();
     await _awgQuickDown();
   }
 
   @override
+  Future<bool> isTunnelProcessRunning() async => _process != null;
+
+  @override
+  Future<bool> isVpnTunnelEstablished() async => _process != null;
+
+  @override
+  Future<String?> getLastVlessStartError() async => null;
+
+  @override
   Future<Map<String, int>> getStats() async {
-    // TODO: wire sing-box experimental / clash_api or parse counters
+    // TODO: wire Xray stats API or log parse
     return {'upload': 0, 'download': 0};
   }
 }
