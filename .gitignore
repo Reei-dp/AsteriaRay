@@ -30,5 +30,3 @@ doc/api/
 .idea
 .metadata
 *.iml
-
-android/app/libs/libv2ray.aar
