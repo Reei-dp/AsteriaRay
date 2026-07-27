@@ -1,20 +1,17 @@
+import '../models/routing_profile.dart';
 import '../models/vless_profile.dart';
 import 'xray_core_stream_settings.dart';
 import 'xray_net_utils.dart';
+import 'xray_routing_builder.dart';
 
 const _userLevel = 8;
-
-const _analyticsSuffixes = [
-  'appcenter.ms',
-  'firebase.io',
-  'crashlytics.com',
-];
 
 /// Full Xray-core JSON for TUN + VLESS (Android VPN fd, Linux `tun`, Windows Wintun).
 Map<String, dynamic> buildXrayCoreClientConfig(
   VlessProfile profile,
-  bool useDoh,
-) {
+  bool useDoh, {
+  RoutingProfile? routing,
+}) {
   final needsBootstrap = xrayHostNeedsDnsBootstrap(profile.host);
   final stream = xrayVlessStreamSettings(profile);
 
@@ -43,6 +40,17 @@ Map<String, dynamic> buildXrayCoreClientConfig(
     'mux': {'enabled': false},
   };
 
+  final dns = routing != null
+      ? XrayRoutingBuilder.buildDns(profile, routing, needsBootstrap)
+      : _xrayDns(profile, useDoh, needsBootstrap);
+
+  final routingBlock = routing != null
+      ? XrayRoutingBuilder.buildRouting(routing)
+      : {
+          'domainStrategy': 'IPIfNonMatch',
+          'rules': _defaultRoutingRules(),
+        };
+
   return {
     'stats': <String, dynamic>{},
     'log': {
@@ -62,8 +70,7 @@ Map<String, dynamic> buildXrayCoreClientConfig(
         'statsOutboundDownlink': true,
       },
     },
-    'dns': _xrayDns(profile, useDoh, needsBootstrap),
-    // TUN-only: no SOCKS on 127.0.0.1 (not needed for tunnel; on Windows :2080 can hit "Access is denied").
+    'dns': dns,
     'inbounds': [
       {
         'tag': 'tun-in',
@@ -98,10 +105,7 @@ Map<String, dynamic> buildXrayCoreClientConfig(
         },
       },
     ],
-    'routing': {
-      'domainStrategy': 'IPIfNonMatch',
-      'rules': _routingRules(),
-    },
+    'routing': routingBlock,
   };
 }
 
@@ -132,7 +136,6 @@ Map<String, dynamic> _xrayDns(
     servers.add('8.8.8.8');
     servers.add('1.1.1.1');
   }
-  // Avoid `localhost` here: on Android+gVisor TUN it often breaks internal DNS routing.
 
   return {
     'hosts': <String, dynamic>{},
@@ -141,10 +144,14 @@ Map<String, dynamic> _xrayDns(
   };
 }
 
-List<Map<String, dynamic>> _routingRules() {
-  // Without this, queries to the VPN-assigned DNS (e.g. 172.19.x) match [geoip:private] → [direct]
-  // and never hit Xray's [dns] stack — common "connected but no internet" on TUN (cf. v2rayNG tun + port 53 → dns-out).
-  final rules = <Map<String, dynamic>>[
+List<Map<String, dynamic>> _defaultRoutingRules() {
+  const analyticsSuffixes = [
+    'appcenter.ms',
+    'firebase.io',
+    'crashlytics.com',
+  ];
+
+  return [
     {
       'type': 'field',
       'inboundTag': ['tun-in'],
@@ -156,27 +163,20 @@ List<Map<String, dynamic>> _routingRules() {
       'ip': ['geoip:private'],
       'outboundTag': 'direct',
     },
+    {
+      'type': 'field',
+      'domain': [for (final s in analyticsSuffixes) 'domain:$s'],
+      'outboundTag': 'block',
+    },
+    {
+      'type': 'field',
+      'ip': ['224.0.0.0/3', 'ff00::/8'],
+      'outboundTag': 'block',
+    },
+    {
+      'type': 'field',
+      'network': 'tcp,udp',
+      'outboundTag': 'proxy',
+    },
   ];
-
-  rules.add({
-    'type': 'field',
-    'domain': [
-      for (final s in _analyticsSuffixes) 'domain:$s',
-    ],
-    'outboundTag': 'block',
-  });
-
-  rules.add({
-    'type': 'field',
-    'ip': ['224.0.0.0/3', 'ff00::/8'],
-    'outboundTag': 'block',
-  });
-
-  rules.add({
-    'type': 'field',
-    'network': 'tcp,udp',
-    'outboundTag': 'proxy',
-  });
-
-  return rules;
 }

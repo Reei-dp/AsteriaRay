@@ -42,6 +42,7 @@ class VpnPlatformAndroid extends VpnPlatform {
     String? profileName,
     String? transport,
     String? vlessServerHost,
+    String? localeCode,
   }) async {
     await _channel.invokeMethod('startVpn', {
       'mode': 'singbox',
@@ -50,6 +51,7 @@ class VpnPlatformAndroid extends VpnPlatform {
       'logPath': logPath,
       'profileName': profileName,
       'transport': transport,
+      if (localeCode != null) 'localeCode': localeCode,
     });
   }
 
@@ -58,11 +60,13 @@ class VpnPlatformAndroid extends VpnPlatform {
     required String conf,
     required String profileName,
     String? profileId,
+    String? localeCode,
   }) async {
     await _channel.invokeMethod('startVpn', {
       'mode': 'awg',
       'conf': conf,
       'profileName': profileName,
+      if (localeCode != null) 'localeCode': localeCode,
     });
   }
 
@@ -100,5 +104,21 @@ class VpnPlatformAndroid extends VpnPlatform {
       'upload': (result['upload'] as num?)?.toInt() ?? 0,
       'download': (result['download'] as num?)?.toInt() ?? 0,
     };
+  }
+
+  @override
+  Future<int?> measureVlessDelay({
+    required String configJson,
+    required String configPath,
+    required String workDir,
+    String testUrl = 'https://www.google.com/generate_204',
+  }) async {
+    final ms = await _channel.invokeMethod<int>('measureVlessDelay', {
+      'configJson': configJson,
+      'workDir': workDir,
+      'testUrl': testUrl,
+    });
+    if (ms == null || ms < 0) return null;
+    return ms;
   }
 }

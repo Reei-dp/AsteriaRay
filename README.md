@@ -1,152 +1,281 @@
+<div align="center">
+
 # AsteriaRay
 
-Cross-platform VPN client (Flutter) with native tunnels: **VLESS** (Xray-core on Android, Linux, and Windows) and **AmneziaWG** (WireGuard-compatible `.conf`) on supported platforms.
+**Open-source cross-platform VPN client — VLESS subscriptions, AmneziaWG, Happ-style routing.**
 
-## Protocol and platform support
+Flutter UI · native tunnels · Xray-core · dark neon interface
 
-Tunneling is implemented only where the table shows **✅**. On other platforms the app may compile for UI work, but **connect** is not available. **Legend:** ✅ supported · ❌ not supported.
+[![Flutter](https://img.shields.io/badge/Flutter-stable-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
+[![Platforms](https://img.shields.io/badge/platforms-Android%20%7C%20Linux%20%7C%20Windows-5ce1ff)](https://github.com/Reei-dp/AsteriaRay/releases)
+[![Release](https://img.shields.io/github/v/release/Reei-dp/AsteriaRay?label=release)](https://github.com/Reei-dp/AsteriaRay/releases)
 
-<table>
-<thead>
-<tr>
-<th align="left">Protocol</th>
-<th align="center">Android</th>
-<th align="center">Linux</th>
-<th align="center">Windows</th>
-<th align="center">macOS</th>
-<th align="center">iOS</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>VLESS</strong></td>
-<td align="center">✅</td>
-<td align="center">✅</td>
-<td align="center">✅</td>
-<td align="center">❌</td>
-<td align="center">❌</td>
-</tr>
-<tr>
-<td><strong>AmneziaWG</strong></td>
-<td align="center">✅</td>
-<td align="center">✅</td>
-<td align="center">✅</td>
-<td align="center">❌</td>
-<td align="center">❌</td>
-</tr>
-<tr>
-<td><strong>OpenVPN</strong></td>
-<td align="center">❌</td>
-<td align="center">❌</td>
-<td align="center">❌</td>
-<td align="center">❌</td>
-<td align="center">❌</td>
-</tr>
-<tr>
-<td><strong>L2TP / IPsec</strong></td>
-<td align="center">❌</td>
-<td align="center">❌</td>
-<td align="center">❌</td>
-<td align="center">❌</td>
-<td align="center">❌</td>
-</tr>
-</tbody>
-</table>
+[Download latest release](https://github.com/Reei-dp/AsteriaRay/releases) · [Telegram bot](https://t.me/asteria_vpn_bot)
 
-**Notes**
+</div>
 
-- **macOS / iOS**: the app may build for UI, but **VPN connect is not implemented** — `createVpnPlatform()` in `lib/services/vpn_platform.dart` only supports **Android**, **Linux**, and **Windows** (hence ❌ in the table).
-- **VLESS**: URI import (`vless://…`), profiles stored in-app; **Android** uses **libv2ray.aar**; **Linux** and **Windows** run **Xray-core** with the same JSON (**Windows** needs **xray.exe** + **wintun.dll** next to the app and usually **Administrator** for TUN + routes; see `tools/fetch_xray_windows.ps1`).
-- **AmneziaWG**: import WireGuard-style `[Interface]` / `[Peer]` config; **Windows** uses **amneziawg-go** + **awg.exe** + **wintun.dll** (see `tools/fetch_amneziawg_windows.ps1`). Not plain stock WireGuard unless the config matches what the bundled **AmneziaWG** stack expects.
-- **OpenVPN** and **L2TP** are not implemented (`VpnProtocol` has no active variants for them; imports like OpenVPN are rejected until parsers/backends exist).
-- **Linux desktop**: system tray uses a native GTK / StatusNotifier path; see `linux/runner/tray_linux.cc`.
+---
+
+## Why AsteriaRay
+
+**AsteriaRay is an open-source VPN client** — not tied to a single provider. Use it with **any** VLESS subscription feed or standalone `vless://` configs, plus AmneziaWG `.conf` files.
+
+It implements the same formats popular clients use: **subscription URLs** (`/api/sub/…`), **traffic & expiry headers**, **Happ routing profiles** (`happ://routing/onadd/…`), and **magnet import** (`asteriaray://add/…`). Works with Asteria, Happ-compatible panels, and other Xray-based services.
+
+| | |
+|---|---|
+| **Subscriptions** | Any `https://…/api/sub/{uuid}` — auto-refresh, ping, pin, edit |
+| **Single configs** | `vless://…` URI, QR scan, clipboard, file import |
+| **AmneziaWG** | Full `.conf` profiles on Android / Linux / Windows |
+| **Routing** | Happ `happ://routing/onadd/…` from subscription headers — geo rules, DNS, split tunnel |
+| **Desktop** | System tray, narrow window, Linux & Windows native sidecars |
+
+> Use [@asteria_vpn_bot](https://t.me/asteria_vpn_bot) if you want an Asteria subscription — optional, not required.
+
+---
+
+## Subscriptions (VLESS)
+
+Add a subscription URL from **any provider** that serves base64 VLESS lines (Happ-style feeds).
+
+### Add a subscription
+
+| Method | How |
+|--------|-----|
+| **Clipboard** | Tap **+** — if the buffer contains a subscription URL, it imports immediately |
+| **Magnet link** | `asteriaray://add/https://…/api/sub/{uuid}` — from a provider page, bot, or your own link |
+| **Manual URL** | Paste `https://your-host/api/sub/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+
+The client fetches **base64-encoded VLESS lines** (`text/plain`), parses metadata from HTTP headers (`subscription-userinfo`, `profile-title`, `profile-update-interval`, routing headers), and keeps nodes in sync with the server.
+
+### Subscription block (Happ-style UI)
+
+- **Refresh** — manual or automatic (interval from server, default 3 h)
+- **Ping** — parallel latency test (3 workers, 5 s timeout per node); results stream in per server
+- **Menu ⋮** — refresh, ping all, edit URL/options, pin, delete
+- **Traffic & expiry** — shown when the backend sends `subscription-userinfo`
+- **Options** — HWID in Cookie, allow insecure TLS, hide server settings (per subscription)
+
+### Deep link format
+
+```
+asteriaray://add/https://your-host/api/sub/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+The URL after `add/` must be the **API feed** (`/api/sub/…`), not the HTML page — same rule as Happ (`happ://add/…`).
+
+---
+
+## Protocols & platforms
+
+Tunneling works only where marked **✅**. macOS / iOS builds exist for UI work; **connect is not implemented** there yet.
+
+| Protocol | Android | Linux | Windows | macOS | iOS |
+|----------|:-------:|:-----:|:-------:|:-----:|:---:|
+| **VLESS** (Xray) | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **AmneziaWG** | ✅ | ✅ | ✅ | ❌ | ❌ |
+| OpenVPN | ❌ | ❌ | ❌ | ❌ | ❌ |
+| L2TP / IPsec | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+### VLESS transports & security
+
+- **Security:** `none`, TLS, **Reality**
+- **Transports:** TCP, WebSocket, gRPC, HTTP/2, **XHTTP** (`stream-up`, `packet-up`, …)
+- **Flow:** XTLS vision where configured
+- **Core:** Xray on all tunnel platforms (libv2ray on Android, sidecar `xray` on desktop)
+
+### AmneziaWG
+
+Import WireGuard-style `[Interface]` / `[Peer]` configs. Uses the **AmneziaWG** stack (not stock WireGuard unless the config matches).
+
+---
+
+## Routing (Happ-compatible)
+
+**Settings → Routing** — profiles imported from subscription feed or defaults.
+
+- Parse **`happ://routing/onadd/{base64}`** from subscription HTTP headers/body
+- **GeoIP / Geosite** lists (Loyalsoldier fallback + URLs from backend profile)
+- **DNS** — remote/domestic, DoU / DoH; applied in Xray when VPN is active
+- **Rule editor** — geosite, geoip, domain, IP CIDR
+- Default profile **「Asteria DNS」** (Cloudflare DoU + private → direct)
+
+---
+
+## Import cheat sheet
+
+Tap **+** in the app:
+
+| Source | What to paste / open |
+|--------|----------------------|
+| **Clipboard** | `vless://…` or `https://…/api/sub/{uuid}` |
+| **QR scan** | `vless://` or subscription URL |
+| **From file** | `.conf` (AmneziaWG) or VLESS lines |
+| **Manual** | VLESS form · AmneziaWG form |
+
+**VLESS URI example**
+
+```
+vless://uuid@host:443?security=reality&type=xhttp&path=/…&host=…&sni=…&fp=chrome&pbk=…&sid=…#🇩🇪 Germany
+```
+
+---
 
 ## Features
 
-- **VLESS**: TLS, Reality, TCP / WebSocket / gRPC / HTTP/2 transports; profile CRUD, clipboard and file import, logs
-- **AmneziaWG**: `.conf` profiles on Android, Linux, and Windows
-- **Profile management**: multiple profiles, switching, export/share where applicable
-- **Native integration**: Android **VpnService** + Xray; Linux **xray** + `awg-quick` / bundled tools (see `linux/` and `tools/`); Windows **xray.exe** + Wintun + `route` (see `lib/services/vpn_platform_windows.dart`)
-- **Connection status** and statistics where the platform exposes them
-- **Modern UI**: Material Design
+- **Localization** — English, Русский, Українська
+- **Cascade nodes** — display uses **entry country** flag (e.g. 🇷🇺 for Russia → Germany)
+- **VPN** — full tunnel via TUN; DNS via tunnel or DoH (settings)
+- **Stats** — upload/download where the platform exposes them (Android)
+- **Desktop tray** — show/hide, quit; Linux StatusNotifier / Windows tray
+- **Secure storage** — sensitive prefs where supported
+- **Release builds** — GitHub Actions: APK (split + universal), Linux `.tar.xz`, Windows Inno Setup
 
-## Architecture (overview)
+---
 
-- **Flutter**: UI and orchestration (`lib/`)
-- **Android**: Kotlin + libv2ray, `LibxrayVpnService`, MethodChannel (`android/app/src/main/kotlin/…`)
-- **Linux**: `VpnPlatformLinux` — `xray` for VLESS, AmneziaWG via `awg-quick` (see `lib/services/vpn_platform_linux.dart`)
-- **Windows**: `VpnPlatformWindows` — `xray` for VLESS with Wintun (see `lib/services/vpn_platform_windows.dart`)
-- **Platform entry**: `createVpnPlatform()` in `lib/services/vpn_platform.dart` — **Android**, **Linux**, and **Windows** for VLESS and AmneziaWG
+## Architecture
 
-## Project structure (abridged)
+```mermaid
+flowchart LR
+  subgraph UI["Flutter UI"]
+    Home[Home / Subscriptions]
+    Settings[Settings / Routing]
+  end
 
+  subgraph Core["Dart services"]
+    Sub[SubscriptionService]
+    XrayCfg[Xray JSON builder]
+    Route[Routing profiles]
+    Ping[VlessLatencyService]
+  end
+
+  subgraph Native["Native tunnels"]
+    A[Android libv2ray + VpnService]
+    L[Linux xray + awg-quick]
+    W[Windows xray + Wintun + awg-go]
+  end
+
+  Home --> Sub
+  Home --> XrayCfg
+  Settings --> Route
+  Sub --> XrayCfg
+  XrayCfg --> A
+  XrayCfg --> L
+  XrayCfg --> W
+  Route --> XrayCfg
+  Ping --> A
+  Ping --> L
+  Ping --> W
 ```
-lib/
-├── main.dart
-├── models/              # VLESS, AmneziaWG, stored profiles
-├── services/            # vpn_platform*, xray_runner (Xray JSON), profile_store, …
-├── notifiers/
-└── screens/
 
-android/                 # Kotlin VPN service, libv2ray
-linux/                   # Runner, CMake, optional bundled xray / awg tools
-windows/                 # Runner, CMake, bundled xray + amneziawg sidecars (windows/xray/, windows/amneziawg/)
-```
+| Layer | Role |
+|-------|------|
+| `lib/notifiers/` | `SubscriptionNotifier`, `VpnNotifier`, `RoutingNotifier`, profiles |
+| `lib/services/` | Fetch/parse subscriptions, Xray config, geo files, deep links |
+| Android | Kotlin — `LibxrayVpnService`, parallel ping pool, `asteriaray://` intent |
+| Linux | `VpnPlatformLinux` — Xray process, routes, AmneziaWG tools |
+| Windows | `VpnPlatformWindows` — Xray + Wintun; **run as Administrator** |
 
-## Requirements
+Entry point: `createVpnPlatform()` in `lib/services/vpn_platform.dart` → **Android**, **Linux**, **Windows** only.
 
-- **Flutter** (stable)
-- **Android**: SDK, device with VPN; **libv2ray.aar** is vendored under `android/app/libs/` (rebuild with `scripts/build_libxray_aar.sh` when bumping Xray/libv2ray)
-- **Linux**: `pkexec`/polkit or passwordless sudo for TUN where required; optional bundled binaries via `tools/fetch_*.sh` (CI/release)
-- **Windows**: Administrator elevation for Wintun and `route`; fetch sidecars with `.\tools\fetch_xray_windows.ps1` before `flutter build windows`
+---
 
-## Building
+## Quick start
+
+### Users
+
+1. [Download a release](https://github.com/Reei-dp/AsteriaRay/releases) for your OS.
+2. Add a subscription URL (`https://…/api/sub/…`) or a single `vless://` config — e.g. from [@asteria_vpn_bot](https://t.me/asteria_vpn_bot) or your provider.
+3. Tap **+ → from clipboard** or open a magnet link.
+4. Pick a server, connect.
+
+### Developers
 
 ```bash
+git clone https://github.com/Reei-dp/AsteriaRay.git
+cd AsteriaRay
 flutter pub get
 ```
 
-**Android** — `libv2ray.aar` is committed under `android/app/libs/`; to rebuild it, run `scripts/build_libxray_aar.sh`, then:
+<details>
+<summary><b>Android</b></summary>
+
+`libv2ray.aar` is vendored under `android/app/libs/`. Rebuild with `scripts/build_libxray_aar.sh` when bumping Xray.
 
 ```bash
-flutter build apk
+flutter build apk --release
+# or split APKs via CI / release workflow
 ```
 
-**Linux** — install GTK/tray build deps first (Debian/Ubuntu example):
+</details>
+
+<details>
+<summary><b>Linux</b></summary>
 
 ```bash
-sudo apt install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libayatana-appindicator3-dev libdbusmenu-gtk3-dev
-flutter build linux
+sudo apt install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+  libsecret-1-dev libayatana-appindicator3-dev libdbusmenu-gtk3-dev
+./tools/fetch_xray_linux.sh
+./tools/fetch_amneziawg_tools_linux.sh
+./tools/fetch_amneziawg_go_linux.sh
+flutter build linux --release
 ```
 
-Bundled helpers for release bundles: `tools/fetch_xray_linux.sh`, `tools/fetch_amneziawg_tools_linux.sh`, `tools/fetch_amneziawg_go_linux.sh` (used in CI).
+Extract `asteriaray-*-linux-x64.tar.xz` from [Releases](https://github.com/Reei-dp/AsteriaRay/releases) or AUR: `asteriaray-bin`.
 
-**Windows** — sidecars are tracked under `windows/xray/` and `windows/amneziawg/` (or refresh with the fetch scripts). CMake copies them next to `asteriaray.exe` on build:
+</details>
+
+<details>
+<summary><b>Windows</b></summary>
 
 ```powershell
 .\tools\fetch_xray_windows.ps1
 .\tools\fetch_amneziawg_windows.bat
-flutter build windows
+flutter build windows --release
 ```
 
-Run the built app **as Administrator** so Wintun and IPv4 routes can be applied (VLESS and AmneziaWG).
+Run **`asteriaray.exe` as Administrator** (Wintun + system routes). Sidecars: `xray.exe`, `wintun.dll`, `amneziawg-go.exe` next to the binary.
 
-## Usage
+</details>
 
-1. Add a profile (**+**) or import from clipboard/file (VLESS URI or AmneziaWG `.conf` where supported).
-2. Select a profile and connect.
-3. Use logs on the home screen if something fails.
+---
 
-## VLESS URI format (short)
+## Project layout
 
 ```
-vless://uuid@host:port?security=tls&sni=example.com&alpn=h2,http/1.1&fp=chrome&type=ws&path=/path&host=example.com#ProfileName
+lib/
+├── main.dart                 # Deep links, providers, tray
+├── models/                   # VlessProfile, VpnSubscription, RoutingProfile, …
+├── notifiers/                # Subscription, VPN, routing, settings
+├── services/                 # subscription_service, xray_*, geo, latency
+├── screens/                  # Home, routing settings, QR, forms
+├── widgets/                  # Subscription block, protocol tabs
+└── l10n/                     # en · ru · uk
+
+android/                      # VpnService, libv2ray, ping executor
+linux/ · windows/             # Runners, bundled native binaries
+packaging/                    # Windows Inno Setup, AUR PKGBUILD
+.github/workflows/            # release.yml, version-bump, AUR publish
 ```
 
-- `security`: `none` | `tls` | `reality`
-- `type`: `tcp` | `ws` | `grpc` | `h2`
-- Reality: `pbk`, `sid` (see in-app / parser)
+---
 
 ## Android permissions
 
-- `INTERNET`, `ACCESS_NETWORK_STATE`, `BIND_VPN_SERVICE`, `FOREGROUND_SERVICE`, notifications as needed for the VPN flow
+`INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS`, `CAMERA` (QR), `BIND_VPN_SERVICE`.
+
+---
+
+## Get a subscription (Asteria)
+
+[**@asteria_vpn_bot**](https://t.me/asteria_vpn_bot) — optional; Asteria VPN in Telegram. Any other VLESS subscription URL works too.
+
+---
+
+<div align="center">
+
+**AsteriaRay** — open-source client for subscriptions and single configs. Any provider.
+
+If this helps you, star the repo and grab the [latest release](https://github.com/Reei-dp/AsteriaRay/releases).
+
+</div>

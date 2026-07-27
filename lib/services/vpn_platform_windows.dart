@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'awg_conf_utils.dart';
 import 'vpn_platform_base.dart';
 import 'vpn_windows_full_tunnel_routes.dart';
+import 'xray_sidecar_latency_probe.dart';
 
 /// Windows: **Xray-core** + Wintun for VLESS (same JSON as Linux/Android); AmneziaWG via **amneziawg-go** + **awg.exe**.
 ///
@@ -602,6 +603,7 @@ exit 0
     String? profileName,
     String? transport,
     String? vlessServerHost,
+    String? localeCode,
   }) async {
     await stopVpn();
 
@@ -754,6 +756,7 @@ exit 0
     required String conf,
     required String profileName,
     String? profileId,
+    String? localeCode,
   }) async {
     await stopVpn();
     await _killOrphanAmneziaWgGoProcesses();
@@ -947,5 +950,27 @@ exit 0
   @override
   Future<Map<String, int>> getStats() async {
     return {'upload': 0, 'download': 0};
+  }
+
+  @override
+  Future<int?> measureVlessDelay({
+    required String configJson,
+    required String configPath,
+    required String workDir,
+    String testUrl = 'https://www.google.com/generate_204',
+  }) async {
+    if (_process != null || _awgProcess != null) return null;
+    final binary = await _resolveXray();
+    if (binary == null) return null;
+    final env = _sidecarEnvironment(
+      xrayDir: File(binary).parent.path,
+      xrayAssetDir: workDir,
+    );
+    return XraySidecarLatencyProbe.measure(
+      xrayBinary: binary,
+      configPath: configPath,
+      environment: env,
+      testUrl: testUrl,
+    );
   }
 }
