@@ -366,29 +366,19 @@ class LibxrayVpnService : VpnService() {
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION_ID, buildNotification())
     }
 
-    private fun formatBytes(bytes: Long): String = when {
-        bytes < 1024 -> "$bytes Б"
-        bytes < 1024 * 1024 -> "%.2f кБ".format(bytes / 1024.0)
-        bytes < 1024 * 1024 * 1024 -> "%.2f МБ".format(bytes / (1024.0 * 1024.0))
-        else -> "%.2f ГБ".format(bytes / (1024.0 * 1024.0 * 1024.0))
-    }
-
-    private fun formatSpeed(bytes: Long): String = when {
-        bytes < 1024 -> "$bytes Б/с"
-        bytes < 1024 * 1024 -> "%.2f кБ/с".format(bytes / 1024.0)
-        else -> "%.2f МБ/с".format(bytes / (1024.0 * 1024.0))
-    }
-
     private fun buildNotification(): Notification {
+        val i18n = VpnNotificationI18n.strings(this)
         val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
-                mgr.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Asteria VPN", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                    setShowBadge(false)
-                    enableLights(false)
-                    enableVibration(false)
-                    setSound(null, null)
-                })
+                mgr.createNotificationChannel(
+                    NotificationChannel(CHANNEL_ID, i18n.channelName, NotificationManager.IMPORTANCE_DEFAULT).apply {
+                        setShowBadge(false)
+                        enableLights(false)
+                        enableVibration(false)
+                        setSound(null, null)
+                    },
+                )
             }
         }
 
@@ -397,18 +387,18 @@ class LibxrayVpnService : VpnService() {
         val stopIntent = Intent(this, LibxrayVpnService::class.java).apply { action = ACTION_STOP_VPN }
         val stopPendingIntent = PendingIntent.getService(this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
-        val profileName = currentProfileName ?: "Профиль"
+        val profileName = currentProfileName ?: i18n.profileFallback
         val transport = currentTransport?.uppercase() ?: "VLESS"
-        val titleText = "Asteria • ${formatBytes(uploadBytes)}↑ ${formatBytes(downloadBytes)}↓"
-        val expandedText = "$profileName\n[VLESS - $transport]\n${formatSpeed(currentTxSpeed)}↑ ${formatSpeed(currentRxSpeed)}↓"
+        val titleText = "Asteria • ${VpnNotificationI18n.formatBytes(this, uploadBytes)}↑ ${VpnNotificationI18n.formatBytes(this, downloadBytes)}↓"
+        val expandedText = "$profileName\n[VLESS - $transport]\n${VpnNotificationI18n.formatSpeed(this, currentTxSpeed)}↑ ${VpnNotificationI18n.formatSpeed(this, currentRxSpeed)}↓"
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(titleText)
             .setContentText(profileName)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText).setSummaryText("VPN активен"))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText).setSummaryText(i18n.vpnActive))
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentIntent(pendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Остановить", stopPendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, i18n.stop, stopPendingIntent)
             .setOngoing(true)
             .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

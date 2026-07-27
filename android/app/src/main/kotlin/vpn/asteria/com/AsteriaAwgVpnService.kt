@@ -76,11 +76,12 @@ class AsteriaAwgVpnService : GoBackend.VpnService() {
     }
 
     private fun buildNotification(tx: Long, rx: Long): Notification {
+        val i18n = VpnNotificationI18n.strings(this)
         val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
                 mgr.createNotificationChannel(
-                    NotificationChannel(CHANNEL_ID, "Asteria VPN", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    NotificationChannel(CHANNEL_ID, i18n.channelName, NotificationManager.IMPORTANCE_DEFAULT).apply {
                         setShowBadge(false)
                         enableLights(false)
                         enableVibration(false)
@@ -91,8 +92,8 @@ class AsteriaAwgVpnService : GoBackend.VpnService() {
         }
 
         val profile = AwgVpnController.lastAwgProfileLabel ?: "AmneziaWG"
-        val title = "Asteria • ${formatBytes(tx)}↑ ${formatBytes(rx)}↓"
-        val expanded = "$profile\n[AmneziaWG]\nVPN активен"
+        val title = "Asteria • ${VpnNotificationI18n.formatBytes(this, tx)}↑ ${VpnNotificationI18n.formatBytes(this, rx)}↓"
+        val expanded = "$profile\n[AmneziaWG]\n${i18n.vpnActive}"
 
         val openApp = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -114,10 +115,10 @@ class AsteriaAwgVpnService : GoBackend.VpnService() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(profile)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(expanded).setSummaryText("VPN активен"))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expanded).setSummaryText(i18n.vpnActive))
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentIntent(contentPi)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Остановить", stopPi)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, i18n.stop, stopPi)
             .setOngoing(true)
             .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -125,13 +126,6 @@ class AsteriaAwgVpnService : GoBackend.VpnService() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(false)
             .build()
-    }
-
-    private fun formatBytes(bytes: Long): String = when {
-        bytes < 1024 -> "$bytes Б"
-        bytes < 1024 * 1024 -> "%.2f КБ".format(bytes / 1024.0)
-        bytes < 1024 * 1024 * 1024 -> "%.2f МБ".format(bytes / (1024.0 * 1024.0))
-        else -> "%.2f ГБ".format(bytes / (1024.0 * 1024.0 * 1024.0))
     }
 
     companion object {
