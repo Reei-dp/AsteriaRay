@@ -18,6 +18,7 @@ class VpnPlatformLinux extends VpnPlatform {
     String? profileName,
     String? transport,
     String? vlessServerHost,
+    String? localeCode,
   }) async {
     throw UnsupportedError('Linux VPN requires a native build');
   }
@@ -27,6 +28,7 @@ class VpnPlatformLinux extends VpnPlatform {
     required String conf,
     required String profileName,
     String? profileId,
+    String? localeCode,
   }) async {
     throw UnsupportedError('Linux VPN requires a native build');
   }
@@ -50,4 +52,12 @@ class VpnPlatformLinux extends VpnPlatform {
   @override
   Future<Map<String, int>> getStats() async =>
       {'upload': 0, 'download': 0};
+
+  @override
+  Future<int?> measureVlessDelay({
+    required String configJson,
+    required String configPath,
+    required String workDir,
+    String testUrl = 'https://www.google.com/generate_204',
+  }) async => null;
 }

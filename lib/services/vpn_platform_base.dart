@@ -16,6 +16,8 @@ abstract class VpnPlatform {
     String? transport,
     /// Linux: VLESS server hostname for `ip route` (full-tunnel through `xray0`). Ignored on Android.
     String? vlessServerHost,
+    /// Android: UI language for foreground VPN notification strings.
+    String? localeCode,
   });
 
   /// AmneziaWG tunnel: Android [GoBackend]; Linux `awg-quick` (amneziawg-tools).
@@ -23,6 +25,7 @@ abstract class VpnPlatform {
     required String conf,
     required String profileName,
     String? profileId,
+    String? localeCode,
   });
 
   Future<void> stopVpn();
@@ -37,4 +40,12 @@ abstract class VpnPlatform {
   Future<String?> getLastVlessStartError();
 
   Future<Map<String, int>> getStats();
+
+  /// Xray VLESS latency through outbound (libv2ray / sidecar). Returns ms or null.
+  Future<int?> measureVlessDelay({
+    required String configJson,
+    required String configPath,
+    required String workDir,
+    String testUrl = 'https://www.google.com/generate_204',
+  });
 }

@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.VpnService
+import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -20,7 +22,25 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        requestHighestRefreshRate()
+    }
+
+    /** Pixel / 120 Hz panels: pick the highest supported display mode for smoother Flutter frames. */
+    private fun requestHighestRefreshRate() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val modes = display?.supportedModes ?: return
+        val best = modes.maxByOrNull { it.refreshRate } ?: return
+        if (best.refreshRate <= 60f) return
+        window.attributes = window.attributes.apply {
+            preferredDisplayModeId = best.modeId
+        }
+    }
+
     private val statsExecutor = Executors.newSingleThreadExecutor()
+    /** Parallel VLESS latency probes (matches Dart [kXrayLatencyProbeConcurrency]). */
+    private val pingExecutor = Executors.newFixedThreadPool(3)
     /** VPN handoff uses [CountDownLatch.await]; must not run on the main thread (onDestroy runs on main). */
     private val vpnHandoffExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -121,11 +141,36 @@ class MainActivity : FlutterActivity() {
             "getLastVlessStartError" -> {
                 result.success(VlessTunnelProcess.getLastStartError(this@MainActivity))
             }
+            "measureVlessDelay" -> {
+                val configJson = call.argument<String>("configJson")
+                val workDir = call.argument<String>("workDir")
+                val testUrl = call.argument<String>("testUrl")
+                    ?: "https://www.google.com/generate_204"
+                if (configJson.isNullOrBlank() || workDir.isNullOrBlank()) {
+                    result.error("args", "Missing configJson or workDir", null)
+                    return
+                }
+                pingExecutor.execute {
+                    try {
+                        val ms = XrayLatencyHelper.measureOutboundDelay(
+                            this@MainActivity,
+                            workDir,
+                            configJson,
+                            testUrl,
+                        )
+                        mainHandler.post { result.success(ms.toInt()) }
+                    } catch (e: Exception) {
+                        Log.d("MainActivity", "measureVlessDelay: ${e.message ?: "failed"}")
+                        mainHandler.post { result.success(-1) }
+                    }
+                }
+            }
             else -> result.notImplemented()
         }
     }
 
     private fun handleStartVpn(call: MethodCall, result: MethodChannel.Result) {
+        VpnLocaleStore.setLanguageCode(call.argument<String>("localeCode"))
         val mode = call.argument<String>("mode") ?: "singbox"
         if (mode == "awg") {
             val conf = call.argument<String>("conf")

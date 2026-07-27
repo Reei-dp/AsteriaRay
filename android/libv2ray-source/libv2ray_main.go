@@ -220,7 +220,9 @@ func MeasureOutboundDelay(ConfigureFileContent string, url string) (int64, error
 		return -1, fmt.Errorf("startup failed: %w", err)
 	}
 	defer inst.Close()
-	return measureInstDelay(context.Background(), inst, url)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return measureInstDelay(ctx, inst, url)
 }
 
 // CheckVersionX returns the library and Xray versions
@@ -276,7 +278,7 @@ func measureInstDelay(ctx context.Context, inst *core.Instance, url string) (int
 	}
 
 	tr := &http.Transport{
-		TLSHandshakeTimeout: 6 * time.Second,
+		TLSHandshakeTimeout: 4 * time.Second,
 		DisableKeepAlives:   false,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			dest, err := corenet.ParseDestination(fmt.Sprintf("%s:%s", network, addr))
@@ -289,7 +291,7 @@ func measureInstDelay(ctx context.Context, inst *core.Instance, url string) (int
 
 	client := &http.Client{
 		Transport: tr,
-		Timeout:   12 * time.Second,
+		Timeout:   5 * time.Second,
 	}
 
 	if url == "" {

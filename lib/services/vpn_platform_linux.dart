@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'awg_conf_utils.dart';
 import 'vpn_linux_full_tunnel_routes.dart';
+import 'xray_sidecar_latency_probe.dart';
 import 'vpn_platform_base.dart';
 
 /// Linux: **Xray-core** for VLESS (same JSON as Android); AmneziaWG via `awg-quick`
@@ -439,6 +440,7 @@ class VpnPlatformLinux extends VpnPlatform {
     String? profileName,
     String? transport,
     String? vlessServerHost,
+    String? localeCode,
   }) async {
     await stopVpn();
 
@@ -660,6 +662,7 @@ class VpnPlatformLinux extends VpnPlatform {
     required String conf,
     required String profileName,
     String? profileId,
+    String? localeCode,
   }) async {
     await stopVpn();
 
@@ -730,5 +733,24 @@ class VpnPlatformLinux extends VpnPlatform {
   Future<Map<String, int>> getStats() async {
     // TODO: wire Xray stats API or log parse
     return {'upload': 0, 'download': 0};
+  }
+
+  @override
+  Future<int?> measureVlessDelay({
+    required String configJson,
+    required String configPath,
+    required String workDir,
+    String testUrl = 'https://www.google.com/generate_204',
+  }) async {
+    if (_process != null) return null;
+    final binary = await _resolveXray();
+    if (binary == null) return null;
+    final env = _sidecarEnvironment(xrayAssetDir: workDir);
+    return XraySidecarLatencyProbe.measure(
+      xrayBinary: binary,
+      configPath: configPath,
+      environment: env,
+      testUrl: testUrl,
+    );
   }
 }
