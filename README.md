@@ -2,7 +2,7 @@
 
 # AsteriaRay
 
-**Open-source cross-platform VPN client — VLESS subscriptions, AmneziaWG, Happ-style routing.**
+**Open-source cross-platform VPN client — VLESS subscriptions, AmneziaWG, custom routing profiles.**
 
 Flutter UI · native tunnels · Xray-core · dark neon interface
 
@@ -20,14 +20,14 @@ Flutter UI · native tunnels · Xray-core · dark neon interface
 
 **AsteriaRay is an open-source VPN client** — not tied to a single provider. Use it with **any** VLESS subscription feed or standalone `vless://` configs, plus AmneziaWG `.conf` files.
 
-It implements the same formats popular clients use: **subscription URLs** (`/api/sub/…`), **traffic & expiry headers**, **Happ routing profiles** (`happ://routing/onadd/…`), and **magnet import** (`asteriaray://add/…`). Works with Asteria, Happ-compatible panels, and other Xray-based services.
+Supports **subscription URLs** (`/api/sub/…`), **traffic & expiry headers**, **routing profiles** from subscription metadata, and **magnet import** (`asteriaray://add/…`). Works with Asteria and any Xray-based provider.
 
 | | |
 |---|---|
 | **Subscriptions** | Any `https://…/api/sub/{uuid}` — auto-refresh, ping, pin, edit |
 | **Single configs** | `vless://…` URI, QR scan, clipboard, file import |
 | **AmneziaWG** | Full `.conf` profiles on Android / Linux / Windows |
-| **Routing** | Happ `happ://routing/onadd/…` from subscription headers — geo rules, DNS, split tunnel |
+| **Routing** | Profiles from subscription headers — geo rules, DNS, split tunnel |
 | **Desktop** | System tray, narrow window, Linux & Windows native sidecars |
 
 > Use [@asteria_vpn_bot](https://t.me/asteria_vpn_bot) if you want an Asteria subscription — optional, not required.
@@ -36,7 +36,7 @@ It implements the same formats popular clients use: **subscription URLs** (`/api
 
 ## Subscriptions (VLESS)
 
-Add a subscription URL from **any provider** that serves base64 VLESS lines (Happ-style feeds).
+Add a subscription URL from **any provider** that serves base64-encoded VLESS lines.
 
 ### Add a subscription
 
@@ -48,7 +48,7 @@ Add a subscription URL from **any provider** that serves base64 VLESS lines (Hap
 
 The client fetches **base64-encoded VLESS lines** (`text/plain`), parses metadata from HTTP headers (`subscription-userinfo`, `profile-title`, `profile-update-interval`, routing headers), and keeps nodes in sync with the server.
 
-### Subscription block (Happ-style UI)
+### Subscription block
 
 - **Refresh** — manual or automatic (interval from server, default 3 h)
 - **Ping** — parallel latency test (3 workers, 5 s timeout per node); results stream in per server
@@ -62,7 +62,7 @@ The client fetches **base64-encoded VLESS lines** (`text/plain`), parses metadat
 asteriaray://add/https://your-host/api/sub/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
-The URL after `add/` must be the **API feed** (`/api/sub/…`), not the HTML page — same rule as Happ (`happ://add/…`).
+The URL after `add/` must be the **API feed** (`/api/sub/…`), not the HTML subscription page.
 
 ---
 
@@ -90,11 +90,11 @@ Import WireGuard-style `[Interface]` / `[Peer]` configs. Uses the **AmneziaWG** 
 
 ---
 
-## Routing (Happ-compatible)
+## Routing
 
 **Settings → Routing** — profiles imported from subscription feed or defaults.
 
-- Parse **`happ://routing/onadd/{base64}`** from subscription HTTP headers/body
+- Parse **routing profile links** from subscription HTTP headers/body
 - **GeoIP / Geosite** lists (Loyalsoldier fallback + URLs from backend profile)
 - **DNS** — remote/domestic, DoU / DoH; applied in Xray when VPN is active
 - **Rule editor** — geosite, geoip, domain, IP CIDR
