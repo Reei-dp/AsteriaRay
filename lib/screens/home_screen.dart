@@ -1,20 +1,31 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../l10n/app_localizations.dart';
+import '../models/amnezia_wg_profile.dart';
 import '../models/stored_vpn_profile.dart';
 import '../models/vless_profile.dart';
 import '../models/vpn_protocol.dart';
 import '../services/config_import_detector.dart';
+import '../services/subscription_service.dart';
 import '../notifiers/profile_notifier.dart';
+import '../notifiers/subscription_notifier.dart';
 import '../notifiers/vpn_notifier.dart';
 import '../widgets/acrylic_toast.dart';
+import '../widgets/protocol_slide_tabs.dart';
+import 'amnezia_wg_form_screen.dart';
+import 'manual_profile_screen.dart';
 import 'profile_form_screen.dart';
+import 'qr_scan_screen.dart';
 import 'settings_screen.dart';
+import 'vless_home_page.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -22,18 +33,21 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final profileNotifier = context.watch<ProfileNotifier>();
-    final vpn = context.watch<VpnNotifier>();
+    final subscriptionNotifier = context.watch<SubscriptionNotifier>();
     final profiles = profileNotifier.profiles;
+    final l10n = context.l10n;
+    final ready =
+        profileNotifier.initialized && subscriptionNotifier.initialized;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Asteria 🚀',
-          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+        title: Text(
+          l10n.appTitle,
+          style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         actions: [
           IconButton(
-            tooltip: 'Настройки',
+            tooltip: l10n.tooltipSettings,
             icon: const Icon(Icons.settings_rounded),
             onPressed: () {
               Navigator.of(context).push(
@@ -44,172 +58,135 @@ class HomeScreen extends StatelessWidget {
             },
           ),
           IconButton(
-            tooltip: 'Импорт из буфера',
-            icon: const Icon(Icons.content_paste),
-            onPressed: () => _importFromClipboard(context),
-          ),
-          IconButton(
-            tooltip: 'Импорт из файла',
-            icon: const Icon(Icons.file_open),
-            onPressed: () => _importFromFile(context),
-          ),
-          IconButton(
-            tooltip: 'Экспорт/шаринг',
+            tooltip: l10n.tooltipShare,
             icon: const Icon(Icons.share),
             onPressed: () => _shareActive(context),
           ),
           IconButton(
-            tooltip: 'Новый конфиг',
+            tooltip: l10n.tooltipAddConfig,
             icon: const Icon(Icons.add_rounded),
-            onPressed: () => _openEditor(context),
+            onPressed: () => _showAddProfileMenu(context),
           ),
         ],
       ),
-      body: profileNotifier.initialized
+      body: ready
           ? Stack(
               children: [
                 Column(
                   children: [
                     Expanded(
-                  child: profiles.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.vpn_key_rounded,
-                                size: 64,
-                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Конфиги не добавлены',
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                                    ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Нажмите кнопку ниже, чтобы добавить',
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-                                    ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          children: [
-                            for (var i = 0; i < profiles.length; i++) ...[
-                              if (i == 0 || profiles[i].protocol != profiles[i - 1].protocol)
-                                Padding(
-                                  padding: EdgeInsets.only(
-                                    top: i == 0 ? 0 : 20,
-                                    bottom: 10,
-                                    left: 2,
-                                    right: 2,
-                                  ),
-                                  child: _ProtocolSectionHeader(protocol: profiles[i].protocol),
-                                ),
-                              _ProfileCard(
-                                profile: profiles[i],
-                                isActive: profileNotifier.activeId == profiles[i].id,
-                                onTap: () => _switchProfile(
-                                  context,
-                                  profiles[i],
-                                  profileNotifier.activeId == profiles[i].id,
-                                ),
-                                onEdit: () {
-                                  final p = profiles[i];
-                                  if (p is VlessStoredVpnProfile) {
-                                    _openEditor(context, profile: p.profile);
-                                  } else {
-                                    AcrylicToast.show(
-                                      context,
-                                      'Редактор AmneziaWG будет позже',
-                                      icon: Icons.edit_outlined,
-                                    );
-                                  }
-                                },
-                                onDelete: () => _confirmDelete(context, profiles[i].id),
-                              ),
-                            ],
-                          ],
+                      child: _HomeProfileSlides(
+                        profiles: profiles,
+                        activeId: profileNotifier.activeId,
+                        onTap: (profile, isActive) => _switchProfile(
+                          context,
+                          profile,
+                          isActive,
                         ),
+                        onEdit: (profile) {
+                          if (profile is VlessStoredVpnProfile) {
+                            _openVlessEditor(context, profile: profile.profile);
+                          } else if (profile is AmneziaWgStoredVpnProfile) {
+                            _openAwgEditor(context, profile: profile.profile);
+                          }
+                        },
+                        onDelete: (profile) => _confirmDeleteProfile(context, profile),
+                      ),
                     ),
-                    _ConnectionBottomBar(
-                      vpnStatus: vpn.status,
-                      active: profileNotifier.activeProfile,
-                      uploadBytes: vpn.uploadBytes,
-                      downloadBytes: vpn.downloadBytes,
-                      onStart: () => _startVpn(context),
-                      onDisconnect: () => vpn.disconnect(),
-                    ),
+                    const _VpnConnectionBottomBar(),
                   ],
                 ),
-                if (profileNotifier.activeProfile != null &&
-                    vpn.status != VpnStatus.connected &&
-                    vpn.status != VpnStatus.connecting)
-                  Positioned(
-                    bottom: 61,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: Material(
-                        elevation: 8,
-                        shape: const CircleBorder(),
-                        color: Colors.white,
-                        child: InkWell(
-                          onTap: () => _startVpn(context),
-                          customBorder: const CircleBorder(),
-                          child: Container(
-                            width: 56,
-                            height: 56,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.play_arrow_rounded,
-                              color: Colors.black,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  )
-                else if (vpn.status == VpnStatus.connected)
-                  Positioned(
-                    bottom: 61,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: Material(
-                        elevation: 8,
-                        shape: const CircleBorder(),
-                        color: Colors.white,
-                        child: InkWell(
-                          onTap: () => vpn.disconnect(),
-                          customBorder: const CircleBorder(),
-                          child: Container(
-                            width: 56,
-                            height: 56,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.stop_rounded,
-                              color: Colors.black,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                const _VpnFloatingActionButton(),
               ],
             )
           : const Center(child: CircularProgressIndicator()),
     );
+  }
+
+  void _showAddProfileMenu(BuildContext context) {
+    final l10n = context.l10n;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                child: Text(
+                  l10n.addConfigTitle,
+                  style: Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: Text(l10n.addManualTitle),
+                subtitle: Text(l10n.addManualSubtitle),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _openManualEditor(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.file_open_rounded),
+                title: Text(l10n.addFileTitle),
+                subtitle: Text(l10n.addFileSubtitle),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _importFromFile(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.qr_code_scanner_rounded),
+                title: Text(l10n.addQrTitle),
+                subtitle: Text(l10n.addQrSubtitle),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _importFromQr(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.content_paste_rounded),
+                title: Text(l10n.addClipboardTitle),
+                subtitle: Text(l10n.addClipboardSubtitle),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _importFromClipboard(context);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  bool get _supportsQrScan =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
+  Future<void> _importFromQr(BuildContext context) async {
+    if (!_supportsQrScan) {
+      AcrylicToast.show(
+        context,
+        context.l10n.qrScannerMobileOnly,
+        icon: Icons.qr_code_scanner_rounded,
+      );
+      return;
+    }
+
+    final payload = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const QrScanScreen()),
+    );
+    if (!context.mounted || payload == null || payload.trim().isEmpty) return;
+    await _importPayload(context, payload.trim());
   }
 
   Future<void> _importFromClipboard(BuildContext context) async {
@@ -217,10 +194,38 @@ class HomeScreen extends StatelessWidget {
     if (!context.mounted) return;
     final text = data?.text?.trim();
     if (text == null || text.isEmpty) {
-      AcrylicToast.show(context, 'Буфер обмена пуст', icon: Icons.content_paste_rounded);
+      AcrylicToast.show(context, context.l10n.clipboardEmpty, icon: Icons.content_paste_rounded);
+      return;
+    }
+    if (SubscriptionService.looksLikeSubscriptionUrl(text)) {
+      await _addSubscriptionFromClipboard(context, text);
       return;
     }
     await _importPayload(context, text);
+  }
+
+  Future<void> _addSubscriptionFromClipboard(
+    BuildContext context,
+    String url,
+  ) async {
+    final l10n = context.l10n;
+    try {
+      await context.read<SubscriptionNotifier>().addFromUrl(url);
+      if (!context.mounted) return;
+      AcrylicToast.show(
+        context,
+        l10n.subscriptionAdded,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      AcrylicToast.show(
+        context,
+        l10n.subscriptionAddFailed(e),
+        icon: Icons.error_outline_rounded,
+        isError: true,
+      );
+    }
   }
 
   Future<void> _importFromFile(BuildContext context) async {
@@ -233,14 +238,14 @@ class HomeScreen extends StatelessWidget {
     final file = result.files.first;
     final path = file.path;
     if (path == null) {
-      AcrylicToast.show(context, 'Не удалось прочитать файл', icon: Icons.error_outline_rounded, isError: true);
+      AcrylicToast.show(context, context.l10n.fileReadError, icon: Icons.error_outline_rounded, isError: true);
       return;
     }
     final content = await File(path).readAsString();
     if (!context.mounted) return;
     final trimmed = content.trim();
     if (trimmed.isEmpty) {
-      AcrylicToast.show(context, 'Файл пуст', icon: Icons.description_rounded);
+      AcrylicToast.show(context, context.l10n.fileEmpty, icon: Icons.description_rounded);
       return;
     }
     if (ConfigImportDetector.detect(trimmed) == ConfigImportKind.wireGuardConf) {
@@ -260,7 +265,7 @@ class HomeScreen extends StatelessWidget {
       } catch (_) {}
     }
     if (!context.mounted) return;
-    AcrylicToast.show(context, 'Импортировано: $imported', icon: Icons.check_circle_rounded);
+    AcrylicToast.show(context, context.l10n.importedCount(imported), icon: Icons.check_circle_rounded);
   }
 
   Future<void> _importPayload(BuildContext context, String text,
@@ -270,11 +275,16 @@ class HomeScreen extends StatelessWidget {
           await context.read<ProfileNotifier>().importFromClipboard(text);
       if (!context.mounted) return;
       if (!silent) {
-        AcrylicToast.show(context, 'Импортировано: ${profile.name}', icon: Icons.check_circle_rounded);
+        AcrylicToast.show(context, context.l10n.importedProfile(profile.name), icon: Icons.check_circle_rounded);
       }
     } catch (e) {
       if (!context.mounted) return;
-      AcrylicToast.show(context, 'Ошибка импорта: $e', icon: Icons.error_outline_rounded, isError: true);
+      AcrylicToast.show(
+        context,
+        e is FormatException ? context.l10n.importFormatError : context.l10n.importError(e),
+        icon: Icons.error_outline_rounded,
+        isError: true,
+      );
     }
   }
 
@@ -286,18 +296,23 @@ class HomeScreen extends StatelessWidget {
           await context.read<ProfileNotifier>().importUri(uri.trim());
       if (!context.mounted) return;
       if (!silent) {
-        AcrylicToast.show(context, 'Импортировано: ${profile.name}', icon: Icons.check_circle_rounded);
+        AcrylicToast.show(context, context.l10n.importedProfile(profile.name), icon: Icons.check_circle_rounded);
       }
     } catch (e) {
       if (!context.mounted) return;
-      AcrylicToast.show(context, 'Ошибка импорта: $e', icon: Icons.error_outline_rounded, isError: true);
+      AcrylicToast.show(
+        context,
+        e is FormatException ? context.l10n.importFormatError : context.l10n.importError(e),
+        icon: Icons.error_outline_rounded,
+        isError: true,
+      );
     }
   }
 
   Future<void> _shareActive(BuildContext context) async {
     final active = context.read<ProfileNotifier>().activeProfile;
     if (active == null) {
-      AcrylicToast.show(context, 'Нет активного конфига', icon: Icons.vpn_key_rounded);
+      AcrylicToast.show(context, context.l10n.noActiveConfig, icon: Icons.vpn_key_rounded);
       return;
     }
     switch (active) {
@@ -322,7 +337,7 @@ class HomeScreen extends StatelessWidget {
 
     // Show switching indicator
     if (wasConnected || wasConnecting) {
-      AcrylicToast.show(context, 'Переключение на ${profile.name}...', duration: const Duration(seconds: 1), icon: Icons.swap_horiz_rounded);
+      AcrylicToast.show(context, context.l10n.switchingTo(profile.name), duration: const Duration(seconds: 1), icon: Icons.swap_horiz_rounded);
     }
 
     // If VPN is connected or connecting, disconnect first
@@ -340,7 +355,7 @@ class HomeScreen extends StatelessWidget {
       if (context.mounted) {
         AcrylicToast.show(
           context,
-          'Подключение к ${profile.name}...',
+          context.l10n.connectingTo(profile.name),
           duration: const Duration(seconds: 1),
           icon: Icons.vpn_lock_rounded,
         );
@@ -348,29 +363,17 @@ class HomeScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _startVpn(BuildContext context) async {
-    final profileNotifier = context.read<ProfileNotifier>();
-    final vpnNotifier = context.read<VpnNotifier>();
-    final activeProfile = profileNotifier.activeProfile;
-    if (activeProfile == null) {
-      AcrylicToast.show(context, 'Выберите конфиг', icon: Icons.vpn_key_rounded);
-      return;
-    }
-    final ok = await vpnNotifier.connect(activeProfile);
-    if (!context.mounted) return;
-    if (!ok) {
-      final err = vpnNotifier.lastErrorBrief ?? vpnNotifier.lastError;
-      AcrylicToast.show(
-        context,
-        err != null && err.isNotEmpty ? err : 'Не удалось подключиться',
-        icon: Icons.error_outline_rounded,
-        isError: true,
-        duration: const Duration(seconds: 6),
-      );
-    }
+  Future<void> _startVpn(BuildContext context) => _homeStartVpn(context);
+
+  void _openManualEditor(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const ManualProfileScreen(),
+      ),
+    );
   }
 
-  void _openEditor(BuildContext context, {VlessProfile? profile}) {
+  void _openVlessEditor(BuildContext context, {VlessProfile? profile}) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ProfileFormScreen(profile: profile),
@@ -378,101 +381,345 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  void _confirmDelete(BuildContext context, String id) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        title: Row(
-          children: [
-            Icon(
-              Icons.warning_rounded,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(width: 12),
-            const Text('Удалить конфиг?'),
-          ],
-        ),
-        content: const Text('Действие нельзя отменить.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await context.read<ProfileNotifier>().delete(id);
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Удалить'),
-          ),
-        ],
+  void _openAwgEditor(BuildContext context, {AmneziaWgProfile? profile}) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AmneziaWgFormScreen(profile: profile),
       ),
     );
   }
 
+  Future<bool> _confirmDeleteProfile(
+    BuildContext context,
+    StoredVpnProfile profile,
+  ) async {
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        final scheme = theme.colorScheme;
+        final l10n = sheetContext.l10n;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  l10n.deleteConfigTitle,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  l10n.deleteConfigBody,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurface.withOpacity(0.65),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _DeleteProfilePreview(profile: profile),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(sheetContext, false),
+                        child: Text(l10n.cancel),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => Navigator.pop(sheetContext, true),
+                        icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                        label: Text(l10n.delete),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: scheme.error,
+                          foregroundColor: scheme.onError,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (confirmed != true || !context.mounted) return false;
+
+    await context.read<ProfileNotifier>().delete(profile.id);
+    if (!context.mounted) return true;
+
+    AcrylicToast.show(
+      context,
+      context.l10n.profileDeleted(profile.name),
+      icon: Icons.check_circle_rounded,
+    );
+    return true;
+  }
+
 }
 
-/// Visual block header when the protocol changes in the profile list.
-class _ProtocolSectionHeader extends StatelessWidget {
-  const _ProtocolSectionHeader({required this.protocol});
+/// Swipeable home: VLESS (page 0) → AmneziaWG (page 1).
+class _HomeProfileSlides extends StatefulWidget {
+  const _HomeProfileSlides({
+    required this.profiles,
+    required this.activeId,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final List<StoredVpnProfile> profiles;
+  final String? activeId;
+  final void Function(StoredVpnProfile profile, bool isActive) onTap;
+  final void Function(StoredVpnProfile profile) onEdit;
+  final Future<bool> Function(StoredVpnProfile profile) onDelete;
+
+  @override
+  State<_HomeProfileSlides> createState() => _HomeProfileSlidesState();
+}
+
+class _HomeProfileSlidesState extends State<_HomeProfileSlides> {
+  static const _pages = [VpnProtocol.vless, VpnProtocol.amneziaWg];
+
+  PageController? _pageController;
+  bool _pageSynced = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_pageSynced) return;
+    final active = context.read<ProfileNotifier>().activeProfile;
+    final initial = active?.protocol == VpnProtocol.amneziaWg ? 1 : 0;
+    _pageController = PageController(initialPage: initial);
+    _pageSynced = true;
+  }
+
+  @override
+  void dispose() {
+    _pageController?.dispose();
+    super.dispose();
+  }
+
+  List<StoredVpnProfile> _forProtocol(VpnProtocol protocol) {
+    return widget.profiles.where((p) => p.protocol == protocol).toList();
+  }
+
+  void _goToPage(int index) {
+    final controller = _pageController;
+    if (controller == null || !controller.hasClients) return;
+    final current = controller.page?.round() ?? controller.initialPage;
+    if (current == index) return;
+    controller.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _pageController;
+    if (controller == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        RepaintBoundary(
+          child: AnimatedBuilder(
+            animation: controller,
+            builder: (context, _) {
+              final page = controller.hasClients
+                  ? (controller.page ?? controller.initialPage.toDouble())
+                  : controller.initialPage.toDouble();
+            return ProtocolSlideTabs(
+              page: page.clamp(0.0, 1.0),
+              onSelect: _goToPage,
+            );
+            },
+          ),
+        ),
+        Expanded(
+          child: PageView(
+            controller: controller,
+            physics: const PageScrollPhysics(
+              parent: ClampingScrollPhysics(),
+            ),
+            children: [
+              RepaintBoundary(
+                child: VlessHomePage(
+                  key: const PageStorageKey<String>('home_vless'),
+                  activeId: widget.activeId,
+                  onTap: widget.onTap,
+                  onEdit: widget.onEdit,
+                  onDelete: widget.onDelete,
+                ),
+              ),
+              RepaintBoundary(
+                child: _ProtocolProfilePage(
+                  key: const PageStorageKey<String>('home_amnezia'),
+                  protocol: VpnProtocol.amneziaWg,
+                  profiles: _forProtocol(VpnProtocol.amneziaWg),
+                  activeId: widget.activeId,
+                  onTap: widget.onTap,
+                  onEdit: widget.onEdit,
+                  onDelete: widget.onDelete,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProtocolProfilePage extends StatefulWidget {
+  const _ProtocolProfilePage({
+    super.key,
+    required this.protocol,
+    required this.profiles,
+    required this.activeId,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final VpnProtocol protocol;
+  final List<StoredVpnProfile> profiles;
+  final String? activeId;
+  final void Function(StoredVpnProfile profile, bool isActive) onTap;
+  final void Function(StoredVpnProfile profile) onEdit;
+  final Future<bool> Function(StoredVpnProfile profile) onDelete;
+
+  @override
+  State<_ProtocolProfilePage> createState() => _ProtocolProfilePageState();
+}
+
+class _ProtocolProfilePageState extends State<_ProtocolProfilePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    if (widget.profiles.isEmpty) {
+      return _ProtocolEmptyState(protocol: widget.protocol);
+    }
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      children: [
+        for (final profile in widget.profiles)
+          _ProfileCard(
+            profile: profile,
+            isActive: widget.activeId == profile.id,
+            onTap: () => widget.onTap(profile, widget.activeId == profile.id),
+            onEdit: () => widget.onEdit(profile),
+            onDelete: () => widget.onDelete(profile),
+          ),
+      ],
+    );
+  }
+}
+
+class _ProtocolEmptyState extends StatelessWidget {
+  const _ProtocolEmptyState({required this.protocol});
 
   final VpnProtocol protocol;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final (Color accent, IconData icon, String title) = switch (protocol) {
-      VpnProtocol.vless => (
-          const Color(0xFF00D9FF),
-          Icons.dns_rounded,
-          'VLESS',
-        ),
-      VpnProtocol.amneziaWg => (
-          const Color(0xFF00D9A0),
-          Icons.shield_rounded,
-          'AmneziaWG',
-        ),
-    };
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.45),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: accent.withOpacity(0.35)),
-      ),
+    final isVless = protocol == VpnProtocol.vless;
+    final l10n = context.l10n;
+    return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 3,
-              height: 22,
-              decoration: BoxDecoration(
-                color: accent,
-                borderRadius: BorderRadius.circular(2),
+            if (isVless)
+              SvgPicture.asset(
+                'assets/protocols/vless-logo-dark.svg',
+                width: 56,
+                height: 56,
+                colorFilter: ColorFilter.mode(
+                  theme.colorScheme.onSurface.withOpacity(0.25),
+                  BlendMode.srcIn,
+                ),
+              )
+            else
+              Opacity(
+                opacity: 0.25,
+                child: SvgPicture.asset(
+                  'assets/protocols/amnezia-logo.svg',
+                  width: 56,
+                  height: 56,
+                ),
+              ),
+            const SizedBox(height: 16),
+            Text(
+              isVless ? l10n.noVlessConfigs : l10n.noAwgConfigs,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.6),
               ),
             ),
-            const SizedBox(width: 12),
-            Icon(icon, size: 20, color: accent),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                title,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.6,
-                  color: accent,
-                ),
+            const SizedBox(height: 8),
+            Text(
+              isVless ? l10n.swipeToAwg : l10n.swipeToVless,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.4),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              l10n.tapPlusToAdd,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.35),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Amnezia brand: blue → orange (from amnezia-client logo palette).
+abstract final class _AmneziaBrand {
+  _AmneziaBrand._();
+
+  static const blue = Color(0xFF87ADD4);
+  static const orange = Color(0xFFFFB754);
+
+  static const gradient = LinearGradient(
+    colors: [blue, orange],
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+  );
+
+  static Widget gradientMask(Widget child) {
+    return ShaderMask(
+      shaderCallback: (bounds) => gradient.createShader(bounds),
+      blendMode: BlendMode.srcIn,
+      child: child,
     );
   }
 }
@@ -490,119 +737,315 @@ class _ProfileCard extends StatelessWidget {
   final bool isActive;
   final VoidCallback onTap;
   final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final Future<bool> Function() onDelete;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final accent = switch (profile) {
-      VlessStoredVpnProfile() => const Color(0xFF00D9FF),
-      AmneziaWgStoredVpnProfile() => const Color(0xFF00D9A0),
-    };
+    final isAmnezia = profile is AmneziaWgStoredVpnProfile;
+    const vlessAccent = Color(0xFF00D9FF);
+
+    final cardBody = Material(
+      color: Theme.of(context).cardColor,
+      elevation: isActive ? 4 : 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: isActive
+            ? BorderSide(
+                color: isAmnezia
+                    ? _AmneziaBrand.orange.withOpacity(0.42)
+                    : vlessAccent.withOpacity(0.45),
+                width: 1,
+              )
+            : BorderSide.none,
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              _ProfileSelectBadge(
+                isActive: isActive,
+                isAmnezia: isAmnezia,
+                accent: vlessAccent,
+                inactiveSurface: scheme.surface,
+                onSurface: scheme.onSurface,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      profile.name,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontFeatures: const [
+                              FontFeature.enable('liga'),
+                            ],
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        if (isAmnezia)
+                          _AmneziaBrand.gradientMask(
+                            SvgPicture.asset(
+                              'assets/protocols/amnezia-logo.svg',
+                              width: 14,
+                              height: 14,
+                            ),
+                          )
+                        else
+                          SvgPicture.asset(
+                            'assets/protocols/vless-logo-dark.svg',
+                            width: 14,
+                            height: 14,
+                            colorFilter: ColorFilter.mode(
+                              isActive
+                                  ? vlessAccent
+                                  : vlessAccent.withOpacity(0.55),
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            switch (profile) {
+                              VlessStoredVpnProfile(:final profile) =>
+                                '${profile.host}:${profile.port}',
+                              AmneziaWgStoredVpnProfile(:final profile) =>
+                                profile.endpointHint,
+                            },
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: scheme.onSurface.withOpacity(0.6),
+                                ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              _ProfileActions(
+                onEdit: onEdit,
+                onDelete: onDelete,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Dismissible(
+        key: ValueKey(profile.id),
+        direction: DismissDirection.endToStart,
+        confirmDismiss: (_) => onDelete(),
+        background: const _DeleteSwipeBackground(),
+        child: cardBody,
+      ),
+    );
+  }
+}
+
+class _ProfileSelectBadge extends StatelessWidget {
+  const _ProfileSelectBadge({
+    required this.isActive,
+    required this.isAmnezia,
+    required this.accent,
+    required this.inactiveSurface,
+    required this.onSurface,
+  });
+
+  final bool isActive;
+  final bool isAmnezia;
+  final Color accent;
+  final Color inactiveSurface;
+  final Color onSurface;
+
+  @override
+  Widget build(BuildContext context) {
+    const size = 48.0;
+
+    final icon = Icon(
+      isActive ? Icons.check_circle_rounded : Icons.circle_outlined,
+      key: ValueKey(isActive),
+      color: isActive
+          ? (isAmnezia ? _AmneziaBrand.orange : accent)
+          : onSurface.withOpacity(0.5),
+    );
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Card(
-        elevation: isActive ? 4 : 2,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(
-            color: isActive ? accent.withOpacity(0.45) : Colors.transparent,
-            width: 1,
-          ),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: isActive ? accent.withOpacity(0.2) : scheme.surface.withOpacity(0.5),
-                    shape: BoxShape.circle,
-                    border: isActive
-                        ? Border.all(
-                            color: accent.withOpacity(0.55),
-                            width: 2,
-                          )
-                        : null,
-                  ),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 200),
-                    transitionBuilder: (child, animation) {
-                      return ScaleTransition(
-                        scale: animation,
-                        child: child,
-                      );
-                    },
-                    child: Icon(
-                      isActive ? Icons.check_circle_rounded : Icons.circle_outlined,
-                      key: ValueKey(isActive),
-                      color: isActive ? accent : scheme.onSurface.withOpacity(0.5),
-                    ),
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: !isActive
+            ? inactiveSurface.withOpacity(0.5)
+            : (isAmnezia ? _AmneziaBrand.orange.withOpacity(0.14) : accent.withOpacity(0.2)),
+        border: isActive
+            ? Border.all(
+                color: isAmnezia
+                    ? _AmneziaBrand.orange.withOpacity(0.55)
+                    : accent.withOpacity(0.55),
+                width: 2,
+              )
+            : null,
+      ),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        transitionBuilder: (child, animation) {
+          return ScaleTransition(scale: animation, child: child);
+        },
+        child: icon,
+      ),
+    );
+  }
+}
+
+Future<void> _homeStartVpn(BuildContext context) async {
+  final profileNotifier = context.read<ProfileNotifier>();
+  final vpnNotifier = context.read<VpnNotifier>();
+  final activeProfile = profileNotifier.activeProfile;
+  if (activeProfile == null) {
+    AcrylicToast.show(context, context.l10n.selectConfig, icon: Icons.vpn_key_rounded);
+    return;
+  }
+  final ok = await vpnNotifier.connect(activeProfile);
+  if (!context.mounted) return;
+  if (!ok) {
+    final err = vpnNotifier.lastErrorBrief ?? vpnNotifier.lastError;
+    AcrylicToast.show(
+      context,
+      err != null && err.isNotEmpty ? err : context.l10n.connectFailed,
+      icon: Icons.error_outline_rounded,
+      isError: true,
+      duration: const Duration(seconds: 6),
+    );
+  }
+}
+
+class _VpnBarSnapshot {
+  const _VpnBarSnapshot({
+    required this.active,
+    required this.status,
+    required this.uploadBytes,
+    required this.downloadBytes,
+  });
+
+  final StoredVpnProfile? active;
+  final VpnStatus status;
+  final int uploadBytes;
+  final int downloadBytes;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _VpnBarSnapshot &&
+        other.active?.id == active?.id &&
+        other.status == status &&
+        other.uploadBytes == uploadBytes &&
+        other.downloadBytes == downloadBytes;
+  }
+
+  @override
+  int get hashCode => Object.hash(active?.id, status, uploadBytes, downloadBytes);
+}
+
+/// Rebuilds only the bottom bar — not the profile [PageView] — when VPN stats tick.
+class _VpnConnectionBottomBar extends StatelessWidget {
+  const _VpnConnectionBottomBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector2<ProfileNotifier, VpnNotifier, _VpnBarSnapshot>(
+      selector: (_, profiles, vpn) => _VpnBarSnapshot(
+        active: profiles.activeProfile,
+        status: vpn.status,
+        uploadBytes: vpn.uploadBytes,
+        downloadBytes: vpn.downloadBytes,
+      ),
+      builder: (context, snap, _) {
+        return _ConnectionBottomBar(
+          vpnStatus: snap.status,
+          active: snap.active,
+          uploadBytes: snap.uploadBytes,
+          downloadBytes: snap.downloadBytes,
+          onStart: () => _homeStartVpn(context),
+          onDisconnect: () => context.read<VpnNotifier>().disconnect(),
+        );
+      },
+    );
+  }
+}
+
+class _VpnFabSnapshot {
+  const _VpnFabSnapshot({required this.hasActive, required this.status});
+
+  final bool hasActive;
+  final VpnStatus status;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _VpnFabSnapshot &&
+        other.hasActive == hasActive &&
+        other.status == status;
+  }
+
+  @override
+  int get hashCode => Object.hash(hasActive, status);
+}
+
+class _VpnFloatingActionButton extends StatelessWidget {
+  const _VpnFloatingActionButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector2<ProfileNotifier, VpnNotifier, _VpnFabSnapshot>(
+      selector: (_, profiles, vpn) => _VpnFabSnapshot(
+        hasActive: profiles.activeProfile != null,
+        status: vpn.status,
+      ),
+      builder: (context, snap, _) {
+        if (!snap.hasActive || snap.status == VpnStatus.connecting) {
+          return const SizedBox.shrink();
+        }
+
+        final isConnected = snap.status == VpnStatus.connected;
+        return Positioned(
+          bottom: 61,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: Material(
+              elevation: 8,
+              shape: const CircleBorder(),
+              color: Colors.white,
+              child: InkWell(
+                onTap: isConnected
+                    ? () => context.read<VpnNotifier>().disconnect()
+                    : () => _homeStartVpn(context),
+                customBorder: const CircleBorder(),
+                child: SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: Icon(
+                    isConnected ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                    color: Colors.black,
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        profile.name,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              fontFeatures: const [
-                                FontFeature.enable('liga'),
-                              ],
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            profile is VlessStoredVpnProfile ? Icons.dns_rounded : Icons.shield_outlined,
-                            size: 14,
-                            color: scheme.onSurface.withOpacity(0.6),
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              switch (profile) {
-                                VlessStoredVpnProfile(:final profile) =>
-                                  '${profile.host}:${profile.port}',
-                                AmneziaWgStoredVpnProfile(:final profile) =>
-                                  profile.endpointHint,
-                              },
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: scheme.onSurface.withOpacity(0.6),
-                                  ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                _ProfileActions(
-                  profile: profile,
-                  onEdit: onEdit,
-                  onDelete: onDelete,
-                ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -624,36 +1067,44 @@ class _ConnectionBottomBar extends StatelessWidget {
   final VoidCallback onStart;
   final VoidCallback onDisconnect;
 
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) {
-      return '$bytes Б';
-    } else if (bytes < 1024 * 1024) {
-      return '${(bytes / 1024).toStringAsFixed(2)} КБ';
-    } else if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} МБ';
-    } else {
-      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} ГБ';
-    }
-  }
+  String _formatBytes(BuildContext context, int bytes) =>
+      context.l10n.formatBytes(bytes);
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final statusText = switch (vpnStatus) {
-      VpnStatus.connected => 'Подключено',
-      VpnStatus.connecting => 'Подключение…',
-      VpnStatus.error => 'Ошибка',
-      VpnStatus.disconnected => 'Отключено',
+      VpnStatus.connected => l10n.connected,
+      VpnStatus.connecting => l10n.connecting,
+      VpnStatus.error => l10n.error,
+      VpnStatus.disconnected => l10n.disconnected,
     };
     final statusColor = switch (vpnStatus) {
       VpnStatus.connected => switch (active) {
           VlessStoredVpnProfile() => const Color(0xFF00D9FF),
-          AmneziaWgStoredVpnProfile() => const Color(0xFF00D9A0),
+          AmneziaWgStoredVpnProfile() => _AmneziaBrand.orange,
           null => const Color(0xFF00D9FF),
         },
       VpnStatus.connecting => const Color(0xFFFFB800),
       VpnStatus.error => const Color(0xFFFF4444),
       VpnStatus.disconnected => Colors.white.withOpacity(0.6),
     };
+    final statusStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        );
+    final amneziaConnected =
+        vpnStatus == VpnStatus.connected && active is AmneziaWgStoredVpnProfile;
+    final statusLabel = amneziaConnected
+        ? _AmneziaBrand.gradientMask(
+            Text(
+              statusText,
+              style: statusStyle?.copyWith(color: Colors.white),
+            ),
+          )
+        : Text(
+            statusText,
+            style: statusStyle?.copyWith(color: statusColor),
+          );
     
     return Stack(
       clipBehavior: Clip.none,
@@ -688,13 +1139,13 @@ class _ConnectionBottomBar extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        '▲ ${_formatBytes(uploadBytes)}',
+                        '▲ ${_formatBytes(context, uploadBytes)}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Colors.white.withOpacity(0.9),
                             ),
                       ),
                       Text(
-                        '▼ ${_formatBytes(downloadBytes)}',
+                        '▼ ${_formatBytes(context, downloadBytes)}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Colors.white.withOpacity(0.9),
                             ),
@@ -709,13 +1160,7 @@ class _ConnectionBottomBar extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        statusText,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: statusColor,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
+                      statusLabel,
                       if (active != null)
                         Text(
                           active!.name,
@@ -737,33 +1182,173 @@ class _ConnectionBottomBar extends StatelessWidget {
   }
 }
 
+class _DeleteSwipeBackground extends StatelessWidget {
+  const _DeleteSwipeBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.centerRight,
+      padding: const EdgeInsets.only(right: 22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: [
+            Theme.of(context).colorScheme.error.withOpacity(0.15),
+            Theme.of(context).colorScheme.error.withOpacity(0.82),
+          ],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+      ),
+      child: Icon(
+        Icons.delete_outline_rounded,
+        color: Theme.of(context).colorScheme.onError.withOpacity(0.95),
+        size: 26,
+      ),
+    );
+  }
+}
+
+class _DeleteProfilePreview extends StatelessWidget {
+  const _DeleteProfilePreview({required this.profile});
+
+  final StoredVpnProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isAmnezia = profile is AmneziaWgStoredVpnProfile;
+    final subtitle = switch (profile) {
+      VlessStoredVpnProfile(:final profile) => '${profile.host}:${profile.port}',
+      AmneziaWgStoredVpnProfile(:final profile) => profile.endpointHint,
+    };
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant.withOpacity(0.35)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: scheme.surface.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: isAmnezia
+                    ? SvgPicture.asset(
+                        'assets/protocols/amnezia-logo.svg',
+                        width: 22,
+                        height: 22,
+                        colorFilter: ColorFilter.mode(
+                          _AmneziaBrand.orange,
+                          BlendMode.srcIn,
+                        ),
+                      )
+                    : SvgPicture.asset(
+                        'assets/protocols/vless-logo-dark.svg',
+                        width: 22,
+                        height: 22,
+                        colorFilter: const ColorFilter.mode(
+                          Color(0xFF00D9FF),
+                          BlendMode.srcIn,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    profile.name,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurface.withOpacity(0.6),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: scheme.error.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                isAmnezia ? 'AWG' : 'VLESS',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.error,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ProfileActions extends StatelessWidget {
   const _ProfileActions({
-    required this.profile,
     required this.onEdit,
     required this.onDelete,
   });
 
-  final StoredVpnProfile profile;
   final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final Future<bool> Function() onDelete;
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      onSelected: (value) {
-        switch (value) {
-          case 'edit':
-            onEdit();
-            break;
-          case 'delete':
-            onDelete();
-            break;
-        }
-      },
-      itemBuilder: (_) => [
-        const PopupMenuItem(value: 'edit', child: Text('Редактировать')),
-        const PopupMenuItem(value: 'delete', child: Text('Удалить')),
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: context.l10n.edit,
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          onPressed: onEdit,
+          icon: Icon(
+            Icons.edit_outlined,
+            size: 20,
+            color: scheme.onSurface.withOpacity(0.55),
+          ),
+        ),
+        IconButton(
+          tooltip: context.l10n.remove,
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          onPressed: () => onDelete(),
+          icon: Icon(
+            Icons.delete_outline_rounded,
+            size: 20,
+            color: scheme.error.withOpacity(0.82),
+          ),
+        ),
       ],
     );
   }

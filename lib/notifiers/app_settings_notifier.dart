@@ -1,5 +1,9 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../l10n/app_language.dart';
+import '../theme/app_theme.dart';
 
 /// App-wide settings (SharedPreferences).
 class AppSettingsNotifier extends ChangeNotifier {
@@ -9,6 +13,8 @@ class AppSettingsNotifier extends ChangeNotifier {
 
   static const _keyViaTunnel = 'settings.dns_via_tunnel';
   static const _keyLegacyDoh = 'settings.dns_doh_enabled';
+  static const _keyLocale = 'settings.locale_code';
+  static const _keyTheme = 'settings.theme';
 
   static Future<AppSettingsNotifier> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -29,8 +35,26 @@ class AppSettingsNotifier extends ChangeNotifier {
   /// **false**: public DoH to Cloudflare (HTTPS not via VPS tunnel).
   bool get dnsViaTunnel => _prefs.getBool(_keyViaTunnel) ?? true;
 
+  Locale get locale => AppLanguage.fromCode(_prefs.getString(_keyLocale)).locale;
+
+  AppLanguage get language => AppLanguage.fromCode(_prefs.getString(_keyLocale));
+
+  AppTheme get appTheme => AppTheme.fromStorage(_prefs.getString(_keyTheme));
+
+  ThemeMode get themeMode => appTheme.themeMode;
+
   Future<void> setDnsViaTunnel(bool value) async {
     await _prefs.setBool(_keyViaTunnel, value);
+    notifyListeners();
+  }
+
+  Future<void> setLanguage(AppLanguage language) async {
+    await _prefs.setString(_keyLocale, language.code);
+    notifyListeners();
+  }
+
+  Future<void> setAppTheme(AppTheme theme) async {
+    await _prefs.setString(_keyTheme, theme.storageKey);
     notifyListeners();
   }
 }

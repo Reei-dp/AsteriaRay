@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../models/routing_profile.dart';
 import '../models/vless_profile.dart';
+import 'geo_file_manager.dart';
 import 'xray_config_context.dart';
 import 'xray_net_utils.dart';
 
@@ -38,11 +40,19 @@ abstract class XrayRunnerBase {
     _logPath = p.join(workDir.path, 'log.txt');
   }
 
+  final GeoFileManager _geoFiles = GeoFileManager();
+
   Future<XrayConfigContext> prepareConfig(
     VlessProfile profile, {
     bool useDoh = false,
+    RoutingProfile? routing,
   }) async {
     final workDir = _workDir ?? (await _ensurePrepared());
+    if (routing != null) {
+      try {
+        await _geoFiles.ensureForProfile(workDir, routing);
+      } catch (_) {}
+    }
     final configPath = p.join(workDir, 'config.json');
     final logPath = _logPath ?? p.join(workDir, 'log.txt');
 
@@ -53,7 +63,7 @@ abstract class XrayRunnerBase {
       }
     } catch (_) {}
 
-    final config = buildConfig(profile, useDoh);
+    final config = buildConfig(profile, useDoh, routing: routing);
     final configFile = File(configPath);
     await configFile.writeAsString(jsonEncode(config));
     return XrayConfigContext(
@@ -76,5 +86,11 @@ abstract class XrayRunnerBase {
     await file.writeAsBytes(bytes, flush: true);
   }
 
-  Map<String, dynamic> buildConfig(VlessProfile profile, bool useDoh);
+  Map<String, dynamic> buildConfig(
+    VlessProfile profile,
+    bool useDoh, {
+    RoutingProfile? routing,
+  });
+
+  GeoFileManager get geoFileManager => _geoFiles;
 }

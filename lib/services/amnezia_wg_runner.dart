@@ -6,12 +6,20 @@ import 'vpn_platform_base.dart';
 
 /// AmneziaWG connect path: Android needs notification permission; Linux/Windows use [VpnPlatform.startAwgVpn].
 sealed class AmneziaWgRunner {
-  Future<void> connect(VpnPlatform platform, AmneziaWgProfile profile);
+  Future<void> connect(
+    VpnPlatform platform,
+    AmneziaWgProfile profile, {
+    String? localeCode,
+  });
 }
 
 final class AmneziaWgRunnerAndroid implements AmneziaWgRunner {
   @override
-  Future<void> connect(VpnPlatform platform, AmneziaWgProfile profile) async {
+  Future<void> connect(
+    VpnPlatform platform,
+    AmneziaWgProfile profile, {
+    String? localeCode,
+  }) async {
     final status = await Permission.notification.status;
     if (!status.isGranted) {
       await Permission.notification.request();
@@ -21,30 +29,41 @@ final class AmneziaWgRunnerAndroid implements AmneziaWgRunner {
       conf: profile.conf,
       profileName: profile.name,
       profileId: profile.id,
+      localeCode: localeCode,
     );
   }
 }
 
 final class AmneziaWgRunnerLinux implements AmneziaWgRunner {
   @override
-  Future<void> connect(VpnPlatform platform, AmneziaWgProfile profile) async {
+  Future<void> connect(
+    VpnPlatform platform,
+    AmneziaWgProfile profile, {
+    String? localeCode,
+  }) async {
     await platform.prepareVpn();
     await platform.startAwgVpn(
       conf: profile.conf,
       profileName: profile.name,
       profileId: profile.id,
+      localeCode: localeCode,
     );
   }
 }
 
 final class AmneziaWgRunnerWindows implements AmneziaWgRunner {
   @override
-  Future<void> connect(VpnPlatform platform, AmneziaWgProfile profile) async {
+  Future<void> connect(
+    VpnPlatform platform,
+    AmneziaWgProfile profile, {
+    String? localeCode,
+  }) async {
     await platform.prepareVpn();
     await platform.startAwgVpn(
       conf: profile.conf,
       profileName: profile.name,
       profileId: profile.id,
+      localeCode: localeCode,
     );
   }
 }

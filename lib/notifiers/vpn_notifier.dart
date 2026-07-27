@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/amnezia_wg_profile.dart';
@@ -7,6 +8,8 @@ import '../models/stored_vpn_profile.dart';
 import '../models/vless_profile.dart';
 import '../models/vless_types.dart';
 import 'app_settings_notifier.dart';
+import 'routing_notifier.dart';
+import '../l10n/app_localizations.dart';
 import '../services/amnezia_wg_runner.dart';
 import '../services/vpn_platform.dart';
 import '../services/xray_runner.dart';
@@ -21,7 +24,9 @@ class VpnNotifier extends ChangeNotifier {
     this._runner, {
     VpnPlatform? platform,
     AppSettingsNotifier? appSettings,
+    RoutingNotifier? routing,
   })  : _appSettings = appSettings,
+        _routing = routing,
         _platform = platform ?? createVpnPlatform() {
     _platform.onVpnStopped = _onNativeVpnStopped;
   }
@@ -56,6 +61,7 @@ class VpnNotifier extends ChangeNotifier {
 
   final XrayRunnerBase _runner;
   final AppSettingsNotifier? _appSettings;
+  final RoutingNotifier? _routing;
   final VpnPlatform _platform;
   VpnStatus _status = VpnStatus.disconnected;
   _ActiveTunnel _activeTunnel = _ActiveTunnel.none;
@@ -83,6 +89,11 @@ class VpnNotifier extends ChangeNotifier {
     if (line.length > 160) line = '${line.substring(0, 157)}...';
     return line;
   }
+
+  AppLocalizations get _l10n =>
+      AppLocalizations.forLocale(_appSettings?.locale ?? const Locale('ru'));
+
+  String? get _localeCode => _appSettings?.language.code;
   String? _logPath;
   String? get logPath => _logPath;
   int get uploadBytes => _uploadBytes;
@@ -111,8 +122,7 @@ class VpnNotifier extends ChangeNotifier {
         defaultTargetPlatform != TargetPlatform.linux &&
         defaultTargetPlatform != TargetPlatform.windows) {
       _status = VpnStatus.error;
-      _lastError =
-          'AmneziaWG is only supported on Android, Linux, and Windows';
+      _lastError = _l10n.awgPlatformUnsupported;
       notifyListeners();
       return;
     }
@@ -123,7 +133,7 @@ class VpnNotifier extends ChangeNotifier {
 
     try {
       await createAmneziaWgRunner()
-          .connect(_platform, profile)
+          .connect(_platform, profile, localeCode: _localeCode)
           .timeout(const Duration(minutes: 3));
       _status = VpnStatus.connected;
       _activeTunnel = _ActiveTunnel.awg;
@@ -135,8 +145,7 @@ class VpnNotifier extends ChangeNotifier {
       } catch (_) {}
       _activeTunnel = _ActiveTunnel.none;
       _status = VpnStatus.error;
-      _lastError =
-          'Таймаут подключения AmneziaWG (3 мин). Часто: awg setconf ждёт UAPI, или DNS при полном туннеле. ${e.message ?? ''}';
+      _lastError = _l10n.awgConnectTimeout(e.message);
       notifyListeners();
     } catch (e) {
       _activeTunnel = _ActiveTunnel.none;
@@ -160,9 +169,12 @@ class VpnNotifier extends ChangeNotifier {
         }
       }
 
+      final routing = _routing?.enabled == true ? _routing!.activeProfile : null;
+      final useAppDns = !(_appSettings?.dnsViaTunnel ?? true);
       final prepared = await _runner.prepareConfig(
         profile,
-        useDoh: !(_appSettings?.dnsViaTunnel ?? true),
+        useDoh: routing == null ? useAppDns : false,
+        routing: routing,
       );
       _logPath = prepared.logPath;
       await _platform.prepareVpn();
@@ -173,6 +185,7 @@ class VpnNotifier extends ChangeNotifier {
         profileName: profile.name,
         transport: transportToString(profile.transport),
         vlessServerHost: profile.host,
+        localeCode: _localeCode,
       );
       if (defaultTargetPlatform == TargetPlatform.android) {
         await _waitAndroidXrayTunnelStable();
@@ -200,7 +213,7 @@ class VpnNotifier extends ChangeNotifier {
       try {
         final native = await _platform.getLastVlessStartError();
         if (native != null && native.isNotEmpty) {
-          s = '$s\n\nXray: $native';
+          s = '$s\n\n${_l10n.xrayNativePrefix}$native';
         }
       } catch (_) {}
     }
@@ -222,17 +235,12 @@ class VpnNotifier extends ChangeNotifier {
       await Future<void>.delayed(const Duration(milliseconds: 150));
     }
     final native = await _platform.getLastVlessStartError();
-    final buf = StringBuffer(
-      'Интерфейс VPN не создан (нет ключа в статус-баре).',
-    );
+    final buf = StringBuffer(_l10n.vlessTunnelNotEstablished);
     if (native != null && native.isNotEmpty) {
-      buf.write('\n\nXray: ');
+      buf.write('\n\n${_l10n.xrayNativePrefix}');
       buf.write(native);
     } else {
-      buf.write(
-        ' В logcat: процесс :xrayvpn, тег LibxrayVpnService — «Failed to establish VPN», '
-        '«VPN permission not granted» или ошибка старта Xray.',
-      );
+      buf.write(_l10n.vlessTunnelLogcatHint);
     }
     throw StateError(buf.toString());
   }
@@ -266,6 +274,9 @@ class VpnNotifier extends ChangeNotifier {
   }
 
   void updateStats(int upload, int download) {
+    if (_uploadBytes == upload && _downloadBytes == download) {
+      return;
+    }
     _uploadBytes = upload;
     _downloadBytes = download;
     notifyListeners();

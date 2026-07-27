@@ -5,8 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
+
+import '../l10n/app_localizations.dart';
+import '../notifiers/app_settings_notifier.dart';
 
 /// Linux / Windows / macOS: closing the window hides it; app stays in the system tray.
 bool get desktopTraySupported =>
@@ -65,16 +69,19 @@ class _DesktopTrayHolderState extends State<DesktopTrayHolder>
     final iconPath = await _materializeTrayIcon();
     await trayManager.setIcon(iconPath);
     await trayManager.setToolTip('AsteriaRay');
+    final l10n = AppLocalizations.forLocale(
+      mounted ? context.read<AppSettingsNotifier>().locale : const Locale('ru'),
+    );
     await trayManager.setContextMenu(
       Menu(
         items: [
           MenuItem(
             key: 'show_window',
-            label: 'Показать AsteriaRay',
+            label: l10n.trayShow,
           ),
           MenuItem(
             key: 'quit',
-            label: 'Выход',
+            label: l10n.trayQuit,
           ),
         ],
       ),

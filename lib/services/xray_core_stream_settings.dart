@@ -49,7 +49,7 @@ Map<String, dynamic> xrayVlessStreamSettings(VlessProfile profile) {
         !(sec == 'reality' && hasRealityKeys);
     stream['tlsSettings'] = {
       'serverName': _vlessTlsServerName(profile),
-      'allowInsecure': false,
+      'allowInsecure': profile.allowInsecure,
       if (profile.alpn.isNotEmpty)
         'alpn': profile.alpn
       else if (xhttpTls)

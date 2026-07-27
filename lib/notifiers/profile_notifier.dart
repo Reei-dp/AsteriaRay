@@ -87,6 +87,21 @@ class ProfileNotifier extends ChangeNotifier {
     await addOrUpdate(VlessStoredVpnProfile(profile));
   }
 
+  Future<void> saveManualAwg({
+    required String conf,
+    String? name,
+    String? existingId,
+  }) async {
+    final trimmedName = name?.trim();
+    final profile = AmneziaWgProfile.fromConf(
+      conf,
+      id: existingId ?? _uuid.v4(),
+      fallbackName:
+          trimmedName != null && trimmedName.isNotEmpty ? trimmedName : null,
+    );
+    await addOrUpdate(AmneziaWgStoredVpnProfile(profile));
+  }
+
   /// Import a single `vless://…` line (e.g. line-by-line from a file).
   Future<VlessStoredVpnProfile> importUri(String uri, {String? fallbackName}) async {
     final profile = VlessProfile.fromUri(uri, fallbackName: fallbackName);
@@ -126,6 +141,95 @@ class ProfileNotifier extends ChangeNotifier {
     _activeId = id;
     await _store.saveActiveId(id);
     notifyListeners();
+  }
+
+  List<VlessStoredVpnProfile> profilesForSubscription(String subscriptionId) {
+    return _profiles
+        .whereType<VlessStoredVpnProfile>()
+        .where((p) => p.profile.subscriptionId == subscriptionId)
+        .toList();
+  }
+
+  List<VlessStoredVpnProfile> get manualVlessProfiles {
+    return _profiles
+        .whereType<VlessStoredVpnProfile>()
+        .where((p) => p.profile.subscriptionId == null)
+        .toList();
+  }
+
+  /// Replace all VLESS nodes for [subscriptionId] with [incoming] (stable ids by node key).
+  Future<int> syncSubscriptionProfiles(
+    String subscriptionId,
+    List<VlessProfile> incoming, {
+    bool allowInsecure = false,
+  }) async {
+    final existing = profilesForSubscription(subscriptionId);
+    final byKey = {
+      for (final p in existing)
+        if (p.profile.subscriptionNodeKey != null)
+          p.profile.subscriptionNodeKey!: p,
+    };
+    final incomingKeys = <String>{};
+    final updatedList = [..._profiles];
+
+    for (final node in incoming) {
+      final key = node.subscriptionNodeKey;
+      if (key == null) continue;
+      incomingKeys.add(key);
+      final prev = byKey[key];
+      final merged = node.copyWith(
+        id: prev?.profile.id ?? node.id,
+        subscriptionId: subscriptionId,
+        subscriptionNodeKey: key,
+        allowInsecure: allowInsecure,
+      );
+      final stored = VlessStoredVpnProfile(merged);
+      final idx = updatedList.indexWhere((p) => p.id == stored.id);
+      if (idx >= 0) {
+        updatedList[idx] = stored;
+      } else {
+        updatedList.add(stored);
+        _activeId ??= stored.id;
+      }
+    }
+
+    _profiles = updatedList
+        .where((p) {
+          if (p is! VlessStoredVpnProfile) return true;
+          if (p.profile.subscriptionId != subscriptionId) return true;
+          final k = p.profile.subscriptionNodeKey;
+          return k != null && incomingKeys.contains(k);
+        })
+        .toList();
+
+    if (_activeId != null &&
+        !_profiles.any((p) => p.id == _activeId)) {
+      _activeId = _profiles.isNotEmpty ? _profiles.first.id : null;
+    }
+
+    await _persist();
+    return incoming.length;
+  }
+
+  Future<void> updateVlessProfile(String id, VlessProfile profile) async {
+    final idx = _profiles.indexWhere((p) => p.id == id);
+    if (idx < 0) return;
+    _profiles[idx] = VlessStoredVpnProfile(profile.copyWith(id: id));
+    await _persist();
+  }
+
+  Future<void> removeSubscriptionProfiles(String subscriptionId) async {
+    _profiles = _profiles.where((p) {
+      if (p is VlessStoredVpnProfile) {
+        return p.profile.subscriptionId != subscriptionId;
+      }
+      return true;
+    }).toList();
+    if (_activeId != null &&
+        !_profiles.any((p) => p.id == _activeId)) {
+      _activeId = _profiles.isNotEmpty ? _profiles.first.id : null;
+    }
+    await _persist();
   }
 
   Future<void> _persist() async {
