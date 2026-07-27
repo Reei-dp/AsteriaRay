@@ -30,6 +30,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -45,9 +48,13 @@ dependencies:
 
   # For config building and file handling
   path: ^1.9.0
+  http: ^1.2.2
   window_manager: ^0.5.1
   tray_manager:
     path: packages/tray_manager
+  mobile_scanner: ^7.4.0
+  flutter_svg: ^2.3.0
+  app_links: ^6.4.0
 
 dev_dependencies:
   flutter_test:
@@ -95,6 +102,8 @@ flutter:
     - assets/dekstop_icon.png
     # Windows shell tray: LoadImage(IMAGE_ICON) requires ICO, not PNG (see tray_manager_plugin.cpp).
     - assets/tray_icon.ico
+    - assets/protocols/vless-logo-dark.svg
+    - assets/protocols/amnezia-logo.svg
 
   # To add assets to your application, add an assets section, like this:
   # assets:
