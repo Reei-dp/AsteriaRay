@@ -27,6 +27,12 @@ class VlessProfile {
   /// Merged into Xray `xhttpSettings.extra` (from URI `extra=` or storage).
   final Map<String, dynamic>? xhttpExtra;
   final String? remark;
+  /// Parent subscription UUID (from sub URL), if imported via subscription feed.
+  final String? subscriptionId;
+  /// Stable node key within subscription (`uuid@host:port`).
+  final String? subscriptionNodeKey;
+  /// TLS verify skip for subscription option «allow insecure».
+  final bool allowInsecure;
 
   const VlessProfile({
     required this.id,
@@ -49,6 +55,9 @@ class VlessProfile {
     this.xhttpMode,
     this.xhttpExtra,
     this.remark,
+    this.subscriptionId,
+    this.subscriptionNodeKey,
+    this.allowInsecure = false,
   });
 
   VlessProfile copyWith({
@@ -72,6 +81,9 @@ class VlessProfile {
     String? xhttpMode,
     Map<String, dynamic>? xhttpExtra,
     String? remark,
+    String? subscriptionId,
+    String? subscriptionNodeKey,
+    bool? allowInsecure,
   }) {
     return VlessProfile(
       id: id ?? this.id,
@@ -94,6 +106,9 @@ class VlessProfile {
       xhttpMode: xhttpMode ?? this.xhttpMode,
       xhttpExtra: xhttpExtra ?? this.xhttpExtra,
       remark: remark ?? this.remark,
+      subscriptionId: subscriptionId ?? this.subscriptionId,
+      subscriptionNodeKey: subscriptionNodeKey ?? this.subscriptionNodeKey,
+      allowInsecure: allowInsecure ?? this.allowInsecure,
     );
   }
 
@@ -120,6 +135,9 @@ class VlessProfile {
       if (xhttpMode != null) 'xhttpMode': xhttpMode,
       if (xhttpExtra != null && xhttpExtra!.isNotEmpty) 'xhttpExtra': xhttpExtra,
       'remark': remark,
+      if (subscriptionId != null) 'subscriptionId': subscriptionId,
+      if (subscriptionNodeKey != null) 'subscriptionNodeKey': subscriptionNodeKey,
+      if (allowInsecure) 'allowInsecure': allowInsecure,
     };
   }
 
@@ -145,6 +163,9 @@ class VlessProfile {
       xhttpMode: map['xhttpMode'] as String?,
       xhttpExtra: _xhttpExtraFromMap(map['xhttpExtra']),
       remark: map['remark'] as String?,
+      subscriptionId: map['subscriptionId'] as String?,
+      subscriptionNodeKey: map['subscriptionNodeKey'] as String?,
+      allowInsecure: map['allowInsecure'] as bool? ?? false,
     );
   }
 
