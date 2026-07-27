@@ -2,22 +2,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/stored_vpn_profile.dart';
 import '../models/vless_profile.dart';
 import '../widgets/acrylic_toast.dart';
 import '../models/vless_types.dart';
 import '../notifiers/profile_notifier.dart';
+import '../widgets/app_dropdown_field.dart';
 
 class ProfileFormScreen extends StatefulWidget {
-  const ProfileFormScreen({super.key, this.profile});
+  const ProfileFormScreen({
+    super.key,
+    this.profile,
+    this.embedded = false,
+  });
 
   final VlessProfile? profile;
+  final bool embedded;
 
   @override
-  State<ProfileFormScreen> createState() => _ProfileFormScreenState();
+  State<ProfileFormScreen> createState() => ProfileFormScreenState();
 }
 
-class _ProfileFormScreenState extends State<ProfileFormScreen> {
+class ProfileFormScreenState extends State<ProfileFormScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => widget.embedded;
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _name;
   late final TextEditingController _host;
@@ -124,33 +134,73 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final isEditing = widget.profile != null;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n = context.l10n;
+
+    final formBody = SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ..._buildFormFields(context, theme, colorScheme, l10n),
+            if (!widget.embedded) ...[
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: submit,
+                  icon: const Icon(Icons.save_rounded),
+                  label: Text(l10n.saveConfig),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(_radius),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    if (widget.embedded) return formBody;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          isEditing ? 'Редактировать' : 'Новый конфиг',
+          isEditing ? l10n.editConfig : l10n.newConfig,
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
           TextButton.icon(
-            onPressed: _submit,
+            onPressed: submit,
             icon: const Icon(Icons.check_rounded),
-            label: const Text('Сохранить'),
+            label: Text(l10n.save),
             style: TextButton.styleFrom(
               foregroundColor: colorScheme.primary,
             ),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+      body: formBody,
+    );
+  }
+
+  List<Widget> _buildFormFields(
+    BuildContext context,
+    ThemeData theme,
+    ColorScheme colorScheme,
+    AppLocalizations l10n,
+  ) {
+    return [
               Card(
                 elevation: 0,
                 shape: RoundedRectangleBorder(
@@ -173,7 +223,7 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
                           ),
                           const SizedBox(width: 10),
                           Text(
-                            'Импорт из URI',
+                            l10n.importFromUri,
                             style: theme.textTheme.titleSmall?.copyWith(
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -200,7 +250,7 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
                         child: FilledButton.tonalIcon(
                           onPressed: _applyUri,
                           icon: const Icon(Icons.download_rounded),
-                          label: const Text('Заполнить из URI'),
+                          label: Text(l10n.fillFromUri),
                           style: FilledButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
@@ -215,7 +265,7 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
               ),
               const SizedBox(height: 28),
               Text(
-                'Основные параметры',
+                l10n.basicParams,
                 style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -225,11 +275,11 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
                 controller: _name,
                 decoration: _fieldDecoration(
                   context,
-                  labelText: 'Название',
+                  labelText: l10n.nameLabel,
                   prefixIcon: Icons.label_rounded,
                 ),
                 validator: (v) => (v == null || v.isEmpty)
-                    ? 'Введите название'
+                    ? l10n.nameRequired
                     : null,
               ),
               const SizedBox(height: 16),
@@ -241,11 +291,11 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
                       controller: _host,
                       decoration: _fieldDecoration(
                         context,
-                        labelText: 'Хост',
+                        labelText: l10n.hostLabel,
                         prefixIcon: Icons.dns_rounded,
                       ),
                       validator: (v) => (v == null || v.isEmpty)
-                          ? 'Хост обязателен'
+                          ? l10n.hostRequired
                           : null,
                     ),
                   ),
@@ -255,13 +305,13 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
                       controller: _port,
                       decoration: _fieldDecoration(
                         context,
-                        labelText: 'Порт',
+                        labelText: l10n.portLabel,
                         prefixIcon: Icons.numbers_rounded,
                       ),
                       keyboardType: TextInputType.number,
                       validator: (v) {
                         final value = int.tryParse(v ?? '');
-                        if (value == null) return 'Неверный порт';
+                        if (value == null) return l10n.portInvalid;
                         return null;
                       },
                     ),
@@ -273,67 +323,48 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
                 controller: _uuid,
                 decoration: _fieldDecoration(
                   context,
-                  labelText: 'UUID',
+                  labelText: l10n.uuidLabel,
                   prefixIcon: Icons.vpn_key_rounded,
                 ),
                 validator: (v) =>
-                    (v == null || v.isEmpty) ? 'UUID обязателен' : null,
+                    (v == null || v.isEmpty) ? l10n.uuidRequired : null,
               ),
               const SizedBox(height: 28),
               Text(
-                'Безопасность и транспорт',
+                l10n.securityTransport,
                 style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
+              AppDropdownField<String>(
+                label: l10n.securityLabel,
+                prefixIcon: Icons.lock_rounded,
                 value: _security,
-                decoration: _fieldDecoration(
-                  context,
-                  labelText: 'Безопасность',
-                  prefixIcon: Icons.lock_rounded,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                dropdownColor: colorScheme.surfaceContainerHigh,
-                icon: Icon(
-                  Icons.arrow_drop_down_rounded,
-                  color: colorScheme.onSurface.withOpacity(0.7),
-                ),
                 items: const [
-                  DropdownMenuItem(value: 'none', child: Text('none')),
-                  DropdownMenuItem(value: 'tls', child: Text('tls')),
-                  DropdownMenuItem(value: 'reality', child: Text('reality')),
+                  AppDropdownItem(value: 'none', label: 'none'),
+                  AppDropdownItem(value: 'tls', label: 'tls'),
+                  AppDropdownItem(value: 'reality', label: 'reality'),
                 ],
-                onChanged: (v) => setState(() => _security = v ?? 'none'),
+                onChanged: (v) => setState(() => _security = v),
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<VlessTransport>(
+              AppDropdownField<VlessTransport>(
+                label: l10n.transportLabel,
+                prefixIcon: Icons.network_check_rounded,
                 value: _transport,
-                decoration: _fieldDecoration(
-                  context,
-                  labelText: 'Транспорт',
-                  prefixIcon: Icons.network_check_rounded,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                dropdownColor: colorScheme.surfaceContainerHigh,
-                icon: Icon(
-                  Icons.arrow_drop_down_rounded,
-                  color: colorScheme.onSurface.withOpacity(0.7),
-                ),
-                items: VlessTransport.values
-                    .map((t) => DropdownMenuItem(
-                          value: t,
-                          child: Text(transportToString(t)),
-                        ))
-                    .toList(),
-                onChanged: (v) {
-                  if (v != null) setState(() => _transport = v);
-                },
+                items: [
+                  for (final t in VlessTransport.values)
+                    AppDropdownItem(
+                      value: t,
+                      label: transportToString(t),
+                    ),
+                ],
+                onChanged: (v) => setState(() => _transport = v),
               ),
               const SizedBox(height: 28),
               Text(
-                'Дополнительные параметры',
+                l10n.advancedParams,
                 style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -397,33 +428,15 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
                 controller: _remark,
                 decoration: _fieldDecoration(
                   context,
-                  labelText: 'Описание',
+                  labelText: l10n.descriptionLabel,
                   prefixIcon: Icons.description_rounded,
                 ),
                 maxLines: 3,
               ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _submit,
-                  icon: const Icon(Icons.save_rounded),
-                  label: const Text('Сохранить конфиг'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(_radius),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        ),
-      ),
-    );
+    ];
   }
+
+  Future<void> submit() => _submit();
 
   Future<void> _pasteUri() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
@@ -456,7 +469,7 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
     } catch (e) {
       AcrylicToast.show(
         context,
-        'Ошибка URI: $e',
+        context.l10n.uriError(e),
         icon: Icons.error_outline_rounded,
         isError: true,
       );
@@ -515,7 +528,7 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
     if (mounted) {
       AcrylicToast.show(
         context,
-        widget.profile == null ? 'Конфиг добавлен' : 'Конфиг сохранён',
+        widget.profile == null ? context.l10n.configAdded : context.l10n.configSaved,
         icon: Icons.check_circle_rounded,
         duration: const Duration(seconds: 1),
       );
